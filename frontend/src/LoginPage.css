@@ -1,0 +1,151 @@
+
+/* LOGIN PAGE */
+
+.login-page {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #081321, #142b46);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 30px 15px;
+  color: white;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 440px;
+  background: #122238;
+  border: 1px solid #263c58;
+  border-radius: 18px;
+  padding: 35px;
+  box-shadow: 0 20px 60px #00000055;
+}
+
+.back-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  margin-bottom: 30px;
+}
+
+.login-logo {
+  text-align: center;
+  color: #60a5fa;
+  margin-bottom: 30px;
+}
+
+.login-logo h2 {
+  color: white;
+  margin: 8px 0 5px;
+  font-size: 28px;
+}
+
+.login-logo p {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.login-card > h2 {
+  font-size: 25px;
+  margin-bottom: 8px;
+}
+
+.login-subtitle {
+  color: #94a3b8;
+  font-size: 14px;
+  margin-bottom: 25px;
+}
+
+.login-card form label {
+  display: block;
+  color: #cbd5e1;
+  font-size: 13px;
+  margin: 18px 0 8px;
+}
+
+.login-input {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #0b1727;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 0 13px;
+  color: #60a5fa;
+}
+
+.login-input input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: white;
+  padding: 13px 0;
+}
+
+.login-input input::placeholder {
+  color: #64748b;
+}
+
+.login-card form select {
+  width: 100%;
+  padding: 13px;
+  border-radius: 8px;
+  background: #0b1727;
+  color: white;
+  border: 1px solid #334155;
+  outline: none;
+}
+
+.login-submit {
+  width: 100%;
+  padding: 14px;
+  margin-top: 28px;
+  background: #2563eb;
+  border: none;
+  border-radius: 8px;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+  transition: 0.3s;
+}
+
+.login-submit:hover {
+  background: #1d4ed8;
+}
+
+.login-security {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  color: #94a3b8;
+  font-size: 12px;
+  margin-top: 25px;
+}
+
+@media (max-width: 480px) {
+  .login-card {
+    padding: 25px 20px;
+  }
+}
+/* Login page text buttons */
+
+.login-card p button {
+  background: transparent;
+  border: none;
+  color: #60a5fa;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
+
+.login-card p button:hover {
+  color: #93c5fd;
+  text-decoration: underline;
+}

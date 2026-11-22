@@ -1,0 +1,41 @@
+
+/* REGISTRATION PAGE */
+
+.register-card {
+  max-width: 480px;
+}
+
+.register-card .login-logo {
+  margin-bottom: 22px;
+}
+
+.register-card > h2 {
+  margin-top: 10px;
+}
+
+.register-card form label {
+  margin-top: 14px;
+}
+
+.register-card .login-submit {
+  margin-top: 24px;
+}
+
+.register-card .login-input:focus-within {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px #2563eb22;
+}
+
+.register-card form input:focus {
+  outline: none;
+}
+
+.register-card .login-security {
+  margin-top: 20px;
+}
+
+@media (max-width: 480px) {
+  .register-card {
+    padding: 24px 18px;
+  }
+}
