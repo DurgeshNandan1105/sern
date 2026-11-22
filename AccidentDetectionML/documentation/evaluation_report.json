@@ -1,0 +1,12 @@
+{
+    "model": "Random Forest",
+    "threshold": 0.33567089961170193,
+    "test_accuracy": 0.966782,
+    "accident_precision": 0.85619,
+    "accident_recall": 0.973229,
+    "accident_f1_score": 0.910966,
+    "true_negatives": 19263,
+    "false_positives": 690,
+    "false_negatives": 113,
+    "true_positives": 4108
+}
