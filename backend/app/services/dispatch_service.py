@@ -7,6 +7,7 @@ from app.models.assignment import Assignment
 from app.models.accident import Accident
 from app.utils.distance import haversine_distance
 from app.services.notification_service import NotificationService
+from app.utils.datetime_utils import utc_now
 
 logger = logging.getLogger("sern.dispatch")
 
@@ -24,6 +25,13 @@ class DispatchService:
     This service performs straight-line geographic Haversine distance selection.
     Road-network route optimization, OSMnx calculations, congestion, and green corridor
     simulations belong exclusively to Member 4's module.
+
+    CONCURRENCY & TRANSACTION NOTE:
+    Selection and assignment use atomic SQL update checks (conditional WHERE criteria)
+    to prevent double-assignment of ambulances or dual-dispatch of emergencies.
+    Note that SQLite operates using file-level locks rather than fine-grained row-level
+    locking; for high-concurrency production deployments, an RDBMS such as PostgreSQL
+    or MySQL with SELECT FOR UPDATE should be configured.
     """
 
     @staticmethod
@@ -77,9 +85,9 @@ class DispatchService:
         if emergency.status in {"COMPLETED", "CANCELLED"}:
             raise ValueError(f"Cannot dispatch for emergency with terminal status '{emergency.status}'.")
 
-        if emergency.assigned_ambulance_id is not None:
+        if emergency.status != "PENDING" or emergency.assigned_ambulance_id is not None:
             raise ValueError(
-                f"Emergency {emergency_id} already has assigned ambulance {emergency.assigned_ambulance_id}."
+                f"Emergency {emergency_id} is already dispatched or assigned to ambulance {emergency.assigned_ambulance_id}."
             )
 
         accident = db.query(Accident).filter(Accident.id == emergency.accident_id).first()
@@ -95,45 +103,74 @@ class DispatchService:
             logger.warning("No available ambulance found for emergency %s", emergency_id)
             raise NoAmbulanceAvailableError("No available ambulances found in the network.")
 
-        # Double check ambulance is not active in another assignment
-        active_assignment = (
-            db.query(Assignment)
-            .filter(Assignment.ambulance_id == nearest_amb.id, Assignment.status == "ACTIVE")
-            .first()
-        )
-        if active_assignment:
-            raise ValueError(f"Ambulance {nearest_amb.registration_number} already has an active assignment.")
+        try:
+            # Atomic update on ambulance to prevent concurrent double-assignment
+            updated_amb_count = (
+                db.query(Ambulance)
+                .filter(Ambulance.id == nearest_amb.id, Ambulance.status == "AVAILABLE")
+                .update({"status": "ASSIGNED", "last_updated": utc_now()}, synchronize_session="fetch")
+            )
+            if updated_amb_count == 0:
+                raise NoAmbulanceAvailableError(
+                    f"Ambulance {nearest_amb.registration_number} was concurrently assigned or is no longer available."
+                )
 
-        # Perform atomic assignment
-        nearest_amb.status = "ASSIGNED"
-        emergency.assigned_ambulance_id = nearest_amb.id
-        emergency.status = "DISPATCHED"
+            # Double check ambulance is not active in another assignment
+            active_assignment = (
+                db.query(Assignment)
+                .filter(Assignment.ambulance_id == nearest_amb.id, Assignment.status == "ACTIVE")
+                .first()
+            )
+            if active_assignment:
+                db.rollback()
+                raise ValueError(f"Ambulance {nearest_amb.registration_number} already has an active assignment.")
 
-        assignment = Assignment(
-            emergency_id=emergency.id,
-            ambulance_id=nearest_amb.id,
-            status="ACTIVE"
-        )
-        db.add(assignment)
+            # Atomic update on emergency to prevent concurrent double-dispatch
+            updated_em_count = (
+                db.query(Emergency)
+                .filter(
+                    Emergency.id == emergency.id,
+                    Emergency.assigned_ambulance_id.is_(None),
+                    Emergency.status == "PENDING"
+                )
+                .update({
+                    "assigned_ambulance_id": nearest_amb.id,
+                    "status": "DISPATCHED",
+                    "updated_at": utc_now()
+                }, synchronize_session="fetch")
+            )
+            if updated_em_count == 0:
+                db.rollback()
+                raise ValueError(f"Emergency {emergency.id} is no longer eligible for dispatch.")
 
-        # Record simulated dispatch notification
-        NotificationService.record_notification(
-            db=db,
-            recipient=f"Ambulance {nearest_amb.registration_number}",
-            notification_type="DISPATCH_NOTICE",
-            message=f"Dispatched to emergency #{emergency.id} at ({accident.latitude:.5f}, {accident.longitude:.5f}). Distance: {distance_km:.2f} km.",
-            emergency_id=emergency.id
-        )
+            assignment = Assignment(
+                emergency_id=emergency.id,
+                ambulance_id=nearest_amb.id,
+                status="ACTIVE"
+            )
+            db.add(assignment)
 
-        db.commit()
-        db.refresh(emergency)
-        db.refresh(nearest_amb)
-        db.refresh(assignment)
+            # Record simulated dispatch notification
+            NotificationService.record_notification(
+                db=db,
+                recipient=f"Ambulance {nearest_amb.registration_number}",
+                notification_type="DISPATCH_NOTICE",
+                message=f"Dispatched to emergency #{emergency.id} at ({accident.latitude:.5f}, {accident.longitude:.5f}). Distance: {distance_km:.2f} km.",
+                emergency_id=emergency.id
+            )
 
-        logger.info(
-            "Dispatched ambulance %s (ID %s) to emergency %s (Distance: %.2f km)",
-            nearest_amb.registration_number, nearest_amb.id, emergency.id, distance_km
-        )
+            db.commit()
+            db.refresh(emergency)
+            db.refresh(nearest_amb)
+            db.refresh(assignment)
 
-        return emergency, nearest_amb, assignment, distance_km
+            logger.info(
+                "Dispatched ambulance %s (ID %s) to emergency %s (Distance: %.2f km)",
+                nearest_amb.registration_number, nearest_amb.id, emergency.id, distance_km
+            )
+
+            return emergency, nearest_amb, assignment, distance_km
+        except Exception:
+            db.rollback()
+            raise
 

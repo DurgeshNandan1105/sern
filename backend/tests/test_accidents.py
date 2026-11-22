@@ -234,3 +234,67 @@ def test_accidents_query_filters(client):
     assert resp_not_detected[0]["id"] == acc3["id"]
     assert resp_not_detected[0]["accident_prediction"] is False
 
+
+def test_cannot_confirm_normal_prediction(client):
+    """
+    Issue 1 Regression Test:
+    Verify that an accident with accident_prediction=False (validation_status=NORMAL)
+    cannot be manually confirmed to create an Emergency record.
+    """
+    mock_svc = MLService(predictor_instance=MockPredictor(detected=False, probability=0.12))
+    with patch("app.routes.accidents.ml_service", mock_svc):
+        reg_resp = client.post("/api/accidents", json=sample_sensor_payload())
+        assert reg_resp.status_code == 201
+        acc_data = reg_resp.json()
+        assert acc_data["accident_prediction"] is False
+        assert acc_data["validation_status"] == "NORMAL"
+        accident_id = acc_data["id"]
+
+        # Attempt to confirm normal prediction
+        val_resp = client.post(
+            f"/api/accidents/{accident_id}/validate",
+            json={"confirmed": True, "validation_notes": "Attempting invalid confirmation"}
+        )
+        assert val_resp.status_code == 400
+        assert "no accident was detected" in val_resp.json()["detail"].lower()
+
+        # Verify no Emergency was created
+        emergencies = client.get("/api/emergencies").json()
+        assert len(emergencies) == 0
+
+        # Verify accident validation status remains NORMAL
+        acc_check = client.get(f"/api/accidents/{accident_id}").json()
+        assert acc_check["validation_status"] == "NORMAL"
+        assert acc_check["emergency_id"] is None
+
+
+def test_cannot_confirm_already_rejected_accident(client):
+    """
+    Issue 1 Regression Test:
+    Verify that a previously rejected / false-alarm accident cannot subsequently be confirmed.
+    """
+    mock_svc = MLService(predictor_instance=MockPredictor(detected=True, probability=0.70))
+    with patch("app.routes.accidents.ml_service", mock_svc):
+        reg_resp = client.post("/api/accidents", json=sample_sensor_payload())
+        accident_id = reg_resp.json()["id"]
+
+        # Reject it first
+        rej_resp = client.post(
+            f"/api/accidents/{accident_id}/validate",
+            json={"confirmed": False, "validation_notes": "Identified as pothole"}
+        )
+        assert rej_resp.status_code == 200
+        assert rej_resp.json()["accident"]["validation_status"] == "REJECTED"
+
+        # Attempt to confirm after rejection
+        conf_resp = client.post(
+            f"/api/accidents/{accident_id}/validate",
+            json={"confirmed": True, "validation_notes": "Trying to confirm rejected incident"}
+        )
+        assert conf_resp.status_code == 400
+        assert "REJECTED" in conf_resp.json()["detail"]
+
+        # Verify no Emergency exists
+        emergencies = client.get("/api/emergencies").json()
+        assert len(emergencies) == 0
+

@@ -26,6 +26,8 @@ def create_notification(payload: NotificationCreate, db: Session = Depends(get_d
         emergency_id=payload.emergency_id,
         hospital_id=payload.hospital_id
     )
+    db.commit()
+    db.refresh(notification)
     return notification
 
 

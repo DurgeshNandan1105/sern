@@ -49,11 +49,13 @@ app = FastAPI(
 )
 
 # CORS Middleware
+# Standard CORS security: allow_credentials=True cannot be combined with wildcard origins ["*"].
 origins = settings.CORS_ORIGINS if isinstance(settings.CORS_ORIGINS, list) else [settings.CORS_ORIGINS]
+is_wildcard = origins == ["*"] or (len(origins) == 1 and origins[0] == "*")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_credentials=True,
+    allow_credentials=False if is_wildcard else True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -63,9 +65,12 @@ app.add_middleware(
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     logger.error("Unhandled exception at %s %s: %s", request.method, request.url, exc, exc_info=True)
+    content = {"detail": "Internal server error occurred."}
+    if settings.DEBUG:
+        content["error"] = str(exc)
     return JSONResponse(
         status_code=500,
-        content={"detail": "Internal server error occurred.", "error": str(exc)}
+        content=content
     )
 
 

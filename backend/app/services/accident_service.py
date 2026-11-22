@@ -13,6 +13,16 @@ from app.utils.datetime_utils import utc_now
 logger = logging.getLogger("sern.accidents")
 
 
+class AccidentNotFoundError(Exception):
+    """Raised when an accident ID cannot be found in the database."""
+    pass
+
+
+class AccidentValidationError(Exception):
+    """Raised when accident validation preconditions or business rules are violated."""
+    pass
+
+
 class AccidentService:
     """Service handling accident ingestion, ML prediction evaluation, and validation."""
 
@@ -79,11 +89,22 @@ class AccidentService:
         """
         accident = db.query(Accident).filter(Accident.id == accident_id).first()
         if not accident:
-            raise ValueError(f"Accident with ID {accident_id} not found.")
+            raise AccidentNotFoundError(f"Accident with ID {accident_id} not found.")
 
         emergency = None
 
         if val_req.confirmed:
+            # Issue 1 Safeguard: A positive ML prediction is strictly required before emergency creation.
+            if not accident.accident_prediction:
+                raise AccidentValidationError(
+                    "Cannot validate an event as an emergency when no accident was detected by the ML model."
+                )
+
+            if accident.validation_status in {"NORMAL", "REJECTED", "FALSE_ALARM"}:
+                raise AccidentValidationError(
+                    f"Cannot confirm an emergency for an accident with validation status '{accident.validation_status}'."
+                )
+
             accident.validation_status = "VALIDATED"
             accident.validation_notes = val_req.validation_notes
 

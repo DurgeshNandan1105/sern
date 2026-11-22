@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from app.database.connection import get_db
 from app.models.ambulance import Ambulance
+from app.models.assignment import Assignment
 from app.schemas.ambulance import (
     AmbulanceCreate,
     AmbulanceUpdate,
@@ -62,6 +63,16 @@ def get_ambulance(ambulance_id: int, db: Session = Depends(get_db)):
     return ambulance
 
 
+def _has_active_assignment(db: Session, ambulance_id: int) -> bool:
+    """Check if ambulance is currently linked to an ongoing active assignment."""
+    return (
+        db.query(Assignment)
+        .filter(Assignment.ambulance_id == ambulance_id, Assignment.status == "ACTIVE")
+        .first()
+        is not None
+    )
+
+
 @router.patch("/{ambulance_id}", response_model=AmbulanceResponse)
 def update_ambulance(
     ambulance_id: int,
@@ -89,7 +100,12 @@ def update_ambulance(
         ambulance.latitude = payload.latitude
     if payload.longitude is not None:
         ambulance.longitude = payload.longitude
-    if payload.status is not None:
+    if payload.status is not None and payload.status != ambulance.status:
+        if _has_active_assignment(db, ambulance_id):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Cannot change status for ambulance '{ambulance.registration_number}' while it has an active assignment."
+            )
         ambulance.status = payload.status
 
     ambulance.last_updated = utc_now()
@@ -134,7 +150,14 @@ def update_ambulance_availability(
             detail=f"Ambulance with ID {ambulance_id} not found."
         )
 
-    ambulance.status = payload.status
+    if payload.status != ambulance.status:
+        if _has_active_assignment(db, ambulance_id):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Cannot change availability for ambulance '{ambulance.registration_number}' while it has an active assignment."
+            )
+        ambulance.status = payload.status
+
     ambulance.last_updated = utc_now()
     db.commit()
     db.refresh(ambulance)

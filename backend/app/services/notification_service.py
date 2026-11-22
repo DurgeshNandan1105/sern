@@ -35,8 +35,6 @@ class NotificationService:
             is_simulated=True
         )
         db.add(notification)
-        db.commit()
-        db.refresh(notification)
 
         logger.info(
             "[SIMULATED NOTIFICATION] Type: %s | Recipient: %s | Emergency: %s | Message: %s",

@@ -11,6 +11,17 @@ from app.utils.datetime_utils import utc_now
 
 logger = logging.getLogger("sern.emergencies")
 
+# Valid lifecycle state transitions for an emergency
+PERMITTED_EMERGENCY_TRANSITIONS = {
+    "PENDING": {"DISPATCHED", "CANCELLED"},
+    "DISPATCHED": {"EN_ROUTE", "CANCELLED"},
+    "EN_ROUTE": {"AT_SCENE", "CANCELLED"},
+    "AT_SCENE": {"TRANSPORTING", "COMPLETED", "CANCELLED"},
+    "TRANSPORTING": {"COMPLETED", "CANCELLED"},
+    "COMPLETED": set(),
+    "CANCELLED": set()
+}
+
 
 class EmergencyService:
     """Service managing emergency lifecycles and assignment synchronization."""
@@ -28,6 +39,15 @@ class EmergencyService:
 
         new_status_upper = new_status.upper()
         old_status = emergency.status
+
+        # Validate lifecycle transition rules if status is changing
+        if new_status_upper != old_status:
+            allowed = PERMITTED_EMERGENCY_TRANSITIONS.get(old_status, set())
+            if new_status_upper not in allowed:
+                raise ValueError(
+                    f"Invalid emergency status transition from '{old_status}' to '{new_status_upper}'."
+                )
+
         emergency.status = new_status_upper
         emergency.updated_at = utc_now()
 
@@ -80,7 +100,7 @@ class EmergencyService:
             raise ValueError(f"Active hospital #{hospital_id} not found.")
 
         emergency.hospital_id = hospital.id
-        emergency.updated_at = datetime.utcnow()
+        emergency.updated_at = utc_now()
 
         # Send simulated notification to hospital
         NotificationService.record_notification(

@@ -152,3 +152,91 @@ def test_emergencies_query_filter_by_status(client):
     completed_list = client.get("/api/emergencies?status=COMPLETED").json()
     assert len(completed_list) == 0
 
+
+def test_invalid_emergency_lifecycle_transitions(client):
+    """
+    Issue 3 Regression Test:
+    Verify that invalid emergency status transitions are rejected and
+    terminal states (COMPLETED, CANCELLED) cannot return to active states.
+    """
+    em_id = setup_emergency_with_client(client)
+
+    # Cannot transition directly from PENDING to COMPLETED (skipping dispatch)
+    bad_comp = client.patch(f"/api/emergencies/{em_id}/status", json={"status": "COMPLETED"})
+    assert bad_comp.status_code == 400
+    assert "Invalid emergency status transition" in bad_comp.json()["detail"]
+
+    # Cannot transition directly from PENDING to AT_SCENE
+    bad_scene = client.patch(f"/api/emergencies/{em_id}/status", json={"status": "AT_SCENE"})
+    assert bad_scene.status_code == 400
+
+    # Dispatch ambulance
+    amb = client.post("/api/ambulances", json={
+        "registration_number": "KA-01-TRANS-1",
+        "latitude": 12.9700,
+        "longitude": 77.5900,
+        "status": "AVAILABLE"
+    }).json()
+    client.post(f"/api/emergencies/{em_id}/dispatch")
+
+    # Cannot transition from DISPATCHED directly to TRANSPORTING (must go EN_ROUTE -> AT_SCENE)
+    bad_transport = client.patch(f"/api/emergencies/{em_id}/status", json={"status": "TRANSPORTING"})
+    assert bad_transport.status_code == 400
+
+    # Follow legitimate path: DISPATCHED -> EN_ROUTE -> AT_SCENE -> TRANSPORTING -> COMPLETED
+    p1 = client.patch(f"/api/emergencies/{em_id}/status", json={"status": "EN_ROUTE"})
+    assert p1.status_code == 200
+
+    # Cannot transition from EN_ROUTE directly to COMPLETED
+    bad_en_route_comp = client.patch(f"/api/emergencies/{em_id}/status", json={"status": "COMPLETED"})
+    assert bad_en_route_comp.status_code == 400
+
+    p2 = client.patch(f"/api/emergencies/{em_id}/status", json={"status": "AT_SCENE"})
+    assert p2.status_code == 200
+
+    p3 = client.patch(f"/api/emergencies/{em_id}/status", json={"status": "TRANSPORTING"})
+    assert p3.status_code == 200
+
+    # Cannot regress backwards: TRANSPORTING -> EN_ROUTE
+    bad_back = client.patch(f"/api/emergencies/{em_id}/status", json={"status": "EN_ROUTE"})
+    assert bad_back.status_code == 400
+
+    # Complete the emergency
+    p4 = client.post(f"/api/emergencies/{em_id}/complete")
+    assert p4.status_code == 200
+    assert p4.json()["status"] == "COMPLETED"
+
+    # Terminal state protection: COMPLETED cannot transition to any active state
+    to_en_route = client.patch(f"/api/emergencies/{em_id}/status", json={"status": "EN_ROUTE"})
+    assert to_en_route.status_code == 400
+    assert "Invalid emergency status transition from 'COMPLETED'" in to_en_route.json()["detail"]
+
+    to_at_scene = client.patch(f"/api/emergencies/{em_id}/status", json={"status": "AT_SCENE"})
+    assert to_at_scene.status_code == 400
+
+    to_cancelled = client.patch(f"/api/emergencies/{em_id}/status", json={"status": "CANCELLED"})
+    assert to_cancelled.status_code == 400
+
+
+def test_cancelled_emergency_cannot_transition(client):
+    """
+    Issue 3 Regression Test:
+    Verify that a CANCELLED emergency cannot return to any active state.
+    """
+    em_id = setup_emergency_with_client(client)
+    cancel_resp = client.post(f"/api/emergencies/{em_id}/cancel")
+    assert cancel_resp.status_code == 200
+    assert cancel_resp.json()["status"] == "CANCELLED"
+
+    # Attempt to transition cancelled emergency
+    res1 = client.patch(f"/api/emergencies/{em_id}/status", json={"status": "DISPATCHED"})
+    assert res1.status_code == 400
+    assert "Invalid emergency status transition from 'CANCELLED'" in res1.json()["detail"]
+
+    res2 = client.patch(f"/api/emergencies/{em_id}/status", json={"status": "EN_ROUTE"})
+    assert res2.status_code == 400
+
+    # Attempt to dispatch on cancelled emergency
+    disp = client.post(f"/api/emergencies/{em_id}/dispatch")
+    assert disp.status_code == 400
+
