@@ -2,6 +2,15 @@
 
 **AI-Powered Accident Detection and Intelligent Emergency Response**
 
+[![Live Demo](https://img.shields.io/badge/Live_Website-sern--alpha.vercel.app-2563eb?style=for-the-badge&logo=vercel)](https://sern-alpha.vercel.app/)
+[![GitHub Repo](https://img.shields.io/badge/GitHub-DurgeshNandan1105%2Fsern-181717?style=for-the-badge&logo=github)](https://github.com/DurgeshNandan1105/sern)
+[![Collaborator Repo](https://img.shields.io/badge/Collaborator-isitamazumder05%2FSERN-6e5494?style=for-the-badge&logo=github)](https://github.com/isitamazumder05/SERN)
+
+> 🌐 **Live Website Link:** [https://sern-alpha.vercel.app/](https://sern-alpha.vercel.app/)  
+> 🤝 **Team Collaboration Repositories:**  
+> - **Lead Deployment Repository:** [https://github.com/DurgeshNandan1105/sern](https://github.com/DurgeshNandan1105/sern)  
+> - **Collaborator Origin Repository:** [https://github.com/isitamazumder05/SERN](https://github.com/isitamazumder05/SERN)  
+
 SERN (Smart Emergency Response Network) is an AI-powered emergency response prototype designed to improve the coordination of post-accident emergency services. It combines machine learning-based accident detection, ambulance dispatch management, intelligent routing integration, and hospital coordination into a unified system.
 
 The goal is to reduce delays in emergency response by connecting accident detection with coordinated ambulance and hospital management.
@@ -200,9 +209,10 @@ SERN is developed collaboratively by a five-member team:
 
 ## 📌 Project Information
 
-**Project Name:** SERN — Smart Emergency Response Network
-
-**Repository:** [GitHub – SERN](https://github.com/isitamazumder05/SERN)
+**Project Name:** SERN — Smart Emergency Response Network  
+**Live Website:** [https://sern-alpha.vercel.app/](https://sern-alpha.vercel.app/)  
+**Primary Repository:** [DurgeshNandan1105 / sern](https://github.com/DurgeshNandan1105/sern)  
+**Collaborator Repository:** [isitamazumder05 / SERN](https://github.com/isitamazumder05/SERN)  
 
 **Tagline:** Detect. Dispatch. Save Lives.
 
