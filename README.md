@@ -207,7 +207,6 @@ SERN is developed collaboratively by a five-member team:
 
 **Project Name:** SERN — Smart Emergency Response Network  
 **Live Website:** [https://sern-alpha.vercel.app/](https://sern-alpha.vercel.app/)  
-**Primary Repository:** [DurgeshNandan1105 / sern](https://github.com/DurgeshNandan1105/sern)  
 **Collaborator Repository:** [isitamazumder05 / SERN](https://github.com/isitamazumder05/SERN)  
 
 **Tagline:** Detect. Dispatch. Save Lives.
