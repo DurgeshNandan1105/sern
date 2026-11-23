@@ -1,5 +1,13 @@
 // SERN Frontend API Service Client
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
+const sanitizeApiBase = () => {
+  const raw = (import.meta.env.VITE_API_BASE_URL || '/api').trim();
+  const noTrailing = raw.replace(/\/+$/, '');
+  if (noTrailing.startsWith('http') && !noTrailing.endsWith('/api')) {
+    return `${noTrailing}/api`;
+  }
+  return noTrailing;
+};
+const API_BASE = sanitizeApiBase();
 
 async function request(endpoint, options = {}) {
   const url = `${API_BASE}${endpoint}`;
@@ -170,10 +178,13 @@ export const sernApi = {
 
     const getWsUrl = () => {
       if (import.meta.env.VITE_WS_URL) {
-        return import.meta.env.VITE_WS_URL;
+        let customWs = import.meta.env.VITE_WS_URL.trim();
+        if (customWs.startsWith('https://')) customWs = customWs.replace(/^https:\/\//, 'wss://');
+        else if (customWs.startsWith('http://')) customWs = customWs.replace(/^http:\/\//, 'ws://');
+        return customWs;
       }
-      if (import.meta.env.VITE_API_BASE_URL && import.meta.env.VITE_API_BASE_URL.startsWith('http')) {
-        return import.meta.env.VITE_API_BASE_URL.replace(/^http/, 'ws') + '/ws';
+      if (API_BASE.startsWith('http')) {
+        return API_BASE.replace(/^http/, 'ws') + '/ws';
       }
       const loc = window.location;
       const protocol = loc.protocol === 'https:' ? 'wss:' : 'ws:';
