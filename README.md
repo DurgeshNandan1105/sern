@@ -3,8 +3,6 @@
 **AI-Powered Accident Detection and Intelligent Emergency Response**
 
 [![Live Demo](https://img.shields.io/badge/Live_Website-sern--alpha.vercel.app-2563eb?style=for-the-badge&logo=vercel)](https://sern-alpha.vercel.app/)
-[![GitHub Repo](https://img.shields.io/badge/GitHub-DurgeshNandan1105%2Fsern-181717?style=for-the-badge&logo=github)](https://github.com/DurgeshNandan1105/sern)
-[![Collaborator Repo](https://img.shields.io/badge/Collaborator-isitamazumder05%2FSERN-6e5494?style=for-the-badge&logo=github)](https://github.com/isitamazumder05/SERN)
 
 > 🌐 **Live Website Link:** [https://sern-alpha.vercel.app/](https://sern-alpha.vercel.app/)  
 
