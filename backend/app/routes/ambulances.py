@@ -10,9 +10,11 @@ from app.schemas.ambulance import (
     AmbulanceUpdate,
     AmbulanceLocationUpdate,
     AmbulanceAvailabilityUpdate,
+    AmbulanceTelemetry,
     AmbulanceResponse,
 )
 from app.utils.datetime_utils import utc_now
+from app.services.websocket_manager import ws_manager
 
 router = APIRouter(prefix="/ambulances", tags=["Ambulances"])
 
@@ -133,7 +135,9 @@ def update_ambulance_location(
     ambulance.last_updated = utc_now()
     db.commit()
     db.refresh(ambulance)
-    return ambulance
+    resp = AmbulanceResponse.model_validate(ambulance)
+    ws_manager.broadcast_sync("AMBULANCE_LOCATION_UPDATED", resp.model_dump())
+    return resp
 
 
 @router.patch("/{ambulance_id}/availability", response_model=AmbulanceResponse)
@@ -161,5 +165,51 @@ def update_ambulance_availability(
     ambulance.last_updated = utc_now()
     db.commit()
     db.refresh(ambulance)
+    return ambulance
+
+
+@router.post("/{ambulance_id}/telemetry", response_model=AmbulanceResponse)
+def stream_ambulance_telemetry(
+    ambulance_id: int,
+    payload: AmbulanceTelemetry,
+    db: Session = Depends(get_db)
+):
+    """
+    Ingest live GPS telemetry stream from the on-board ambulance unit.
+    Broadcasts real-time position, velocity, heading, and ETA countdown
+    to all active dispatch monitors over WebSockets with zero latency.
+    """
+    ambulance = db.query(Ambulance).filter(Ambulance.id == ambulance_id).first()
+    if not ambulance:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Ambulance with ID {ambulance_id} not found."
+        )
+
+    ambulance.latitude = payload.latitude
+    ambulance.longitude = payload.longitude
+    if payload.status and payload.status in {"AVAILABLE", "ASSIGNED", "EN_ROUTE", "AT_SCENE", "TRANSPORTING", "UNAVAILABLE"}:
+        ambulance.status = payload.status
+    ambulance.last_updated = utc_now()
+    db.commit()
+    db.refresh(ambulance)
+
+    telemetry_data = {
+        "id": ambulance.id,
+        "registration_number": ambulance.registration_number,
+        "latitude": ambulance.latitude,
+        "longitude": ambulance.longitude,
+        "status": ambulance.status,
+        "speed_kmh": payload.speed_kmh,
+        "heading_deg": payload.heading_deg,
+        "distance_remaining_km": payload.distance_remaining_km,
+        "eta_seconds": payload.eta_seconds,
+        "timestamp": ambulance.last_updated.isoformat()
+    }
+
+    # Broadcast both telemetry and general location update
+    ws_manager.broadcast_sync("AMBULANCE_TELEMETRY", telemetry_data)
+    ws_manager.broadcast_sync("AMBULANCE_LOCATION_UPDATED", AmbulanceResponse.model_validate(ambulance).model_dump())
+
     return ambulance
 

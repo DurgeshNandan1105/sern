@@ -13,6 +13,7 @@ from app.schemas.emergency import (
 from app.schemas.ambulance import AmbulanceResponse
 from app.services.dispatch_service import DispatchService, NoAmbulanceAvailableError
 from app.services.emergency_service import EmergencyService
+from app.services.websocket_manager import ws_manager
 
 router = APIRouter(prefix="/emergencies", tags=["Emergencies"])
 
@@ -52,12 +53,15 @@ def update_emergency_status(
     Arrival-related statuses are updated only when explicit status updates are received.
     """
     try:
-        return EmergencyService.update_status(
+        updated = EmergencyService.update_status(
             db=db,
             emergency_id=emergency_id,
             new_status=payload.status,
             notes=payload.notes
         )
+        resp = EmergencyResponse.model_validate(updated)
+        ws_manager.broadcast_sync("EMERGENCY_STATUS_UPDATED", resp.model_dump())
+        return resp
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
@@ -73,13 +77,15 @@ def dispatch_ambulance(emergency_id: int, db: Session = Depends(get_db)):
             db=db,
             emergency_id=emergency_id
         )
-        return EmergencyDispatchResponse(
+        dispatch_resp = EmergencyDispatchResponse(
             emergency=EmergencyResponse.model_validate(emergency),
             assigned_ambulance=AmbulanceResponse.model_validate(ambulance),
             distance_km=distance_km,
             assignment=AssignmentResponse.model_validate(assignment),
             message=f"Ambulance {ambulance.registration_number} dispatched successfully."
         )
+        ws_manager.broadcast_sync("AMBULANCE_DISPATCHED", dispatch_resp.model_dump())
+        return dispatch_resp
     except NoAmbulanceAvailableError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -118,7 +124,10 @@ def assign_hospital_to_emergency(
 ):
     """Assign destination hospital to emergency."""
     try:
-        return EmergencyService.assign_hospital(db, emergency_id, payload.hospital_id)
+        updated = EmergencyService.assign_hospital(db, emergency_id, payload.hospital_id)
+        resp = EmergencyResponse.model_validate(updated)
+        ws_manager.broadcast_sync("HOSPITAL_ASSIGNED", resp.model_dump())
+        return resp
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 

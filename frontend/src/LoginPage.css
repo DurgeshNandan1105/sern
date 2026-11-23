@@ -71,34 +71,54 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  background: #0b1727;
-  border: 1px solid #334155;
+  background: #0b1727 !important;
+  background-color: #0b1727 !important;
+  border: 1px solid #334155 !important;
   border-radius: 8px;
   padding: 0 13px;
   color: #60a5fa;
+  color-scheme: dark;
 }
 
 .login-input input {
-  width: 100%;
-  background: transparent;
-  border: none;
-  outline: none;
-  color: white;
-  padding: 13px 0;
+  width: 100% !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  border: none !important;
+  outline: none !important;
+  color: #f8fafc !important;
+  -webkit-text-fill-color: #f8fafc !important;
+  padding: 13px 0 !important;
+  font-size: 14px;
+  box-shadow: none !important;
+  color-scheme: dark;
+}
+
+.login-input input:-webkit-autofill,
+.login-input input:-webkit-autofill:hover, 
+.login-input input:-webkit-autofill:focus,
+.login-input input:-webkit-autofill:active {
+  -webkit-text-fill-color: #f8fafc !important;
+  -webkit-box-shadow: 0 0 0px 1000px #0b1727 inset !important;
+  box-shadow: 0 0 0px 1000px #0b1727 inset !important;
+  caret-color: #f8fafc !important;
+  transition: background-color 5000s ease-in-out 0s;
 }
 
 .login-input input::placeholder {
-  color: #64748b;
+  color: #64748b !important;
 }
 
 .login-card form select {
   width: 100%;
   padding: 13px;
   border-radius: 8px;
-  background: #0b1727;
-  color: white;
-  border: 1px solid #334155;
+  background: #0b1727 !important;
+  background-color: #0b1727 !important;
+  color: #f8fafc !important;
+  border: 1px solid #334155 !important;
   outline: none;
+  color-scheme: dark;
 }
 
 .login-submit {
@@ -148,4 +168,138 @@
 .login-card p button:hover {
   color: #93c5fd;
   text-decoration: underline;
+}
+
+/* Real Mobile Push Notification Banner */
+.sms-popup-banner {
+  position: fixed;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 92%;
+  max-width: 480px;
+  background: rgba(15, 23, 42, 0.95);
+  backdrop-filter: blur(12px);
+  border: 1px solid #38bdf8;
+  border-radius: 14px;
+  padding: 14px 16px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6), 0 0 20px rgba(56, 189, 248, 0.3);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  z-index: 9999;
+  animation: slideDownNotification 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideDownNotification {
+  from {
+    transform: translate(-50%, -60px) scale(0.95);
+    opacity: 0;
+  }
+  to {
+    transform: translate(-50%, 0) scale(1);
+    opacity: 1;
+  }
+}
+
+.sms-popup-icon {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #0284c7, #2563eb);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  flex-shrink: 0;
+}
+
+.sms-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: #ef4444;
+  color: white;
+  font-size: 10px;
+  font-weight: bold;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #0f172a;
+}
+
+.sms-popup-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.sms-popup-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: #94a3b8;
+  margin-bottom: 2px;
+}
+
+.sms-popup-header strong {
+  color: #38bdf8;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.sms-popup-body {
+  font-size: 13px;
+  color: #f1f5f9;
+  margin: 0;
+  line-height: 1.3;
+}
+
+.sms-otp-highlight {
+  color: #38bdf8;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  background: rgba(56, 189, 248, 0.15);
+  padding: 1px 6px;
+  border-radius: 4px;
+  display: inline-block;
+}
+
+.sms-use-btn {
+  background: #0284c7;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: bold;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 0.2s;
+}
+
+.sms-use-btn:hover {
+  background: #0369a1;
+}
+
+.sms-close-btn {
+  background: transparent;
+  border: none;
+  color: #64748b;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+
+.sms-close-btn:hover {
+  color: #cbd5e1;
 }

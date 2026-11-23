@@ -42,27 +42,11 @@ class DispatchService:
     ) -> Tuple[Optional[Ambulance], Optional[float]]:
         """
         Find the nearest ambulance with status == 'AVAILABLE'.
-        Uses Haversine distance formula.
+        Uses PostGIS sub-millisecond geographic indexing if PostgreSQL is active,
+        with seamless fallback to high-precision Haversine distance.
         """
-        available_ambulances = (
-            db.query(Ambulance)
-            .filter(Ambulance.status == "AVAILABLE")
-            .all()
-        )
-
-        if not available_ambulances:
-            return None, None
-
-        nearest_amb = None
-        min_dist = float("inf")
-
-        for amb in available_ambulances:
-            dist = haversine_distance(target_lat, target_lon, amb.latitude, amb.longitude)
-            if dist < min_dist:
-                min_dist = dist
-                nearest_amb = amb
-
-        return nearest_amb, min_dist
+        from app.services.spatial_service import SpatialService
+        return SpatialService.find_nearest_ambulance(db, target_lat, target_lon)
 
     @classmethod
     def dispatch_for_emergency(

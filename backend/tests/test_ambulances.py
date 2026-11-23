@@ -138,3 +138,47 @@ def test_cannot_change_availability_during_active_assignment(client):
     assert avail_resp.status_code == 200
     assert avail_resp.json()["status"] == "AVAILABLE"
 
+
+def test_ambulance_telemetry_streaming(client):
+    """
+    Test real-time GPS telemetry ingestion endpoint.
+    Verifies that latitude, longitude, velocity, heading, and ETA can be updated.
+    """
+    amb = client.post("/api/ambulances", json={
+        "registration_number": "KA-04-TELEMETRY",
+        "latitude": 12.9100,
+        "longitude": 77.5800,
+        "status": "AVAILABLE"
+    }).json()
+
+    amb_id = amb["id"]
+
+    telem_payload = {
+        "latitude": 12.9250,
+        "longitude": 77.5950,
+        "speed_kmh": 62.5,
+        "heading_deg": 145.0,
+        "distance_remaining_km": 2.4,
+        "eta_seconds": 138,
+        "status": "EN_ROUTE"
+    }
+
+    resp = client.post(f"/api/ambulances/{amb_id}/telemetry", json=telem_payload)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["latitude"] == 12.9250
+    assert data["longitude"] == 77.5950
+    assert data["status"] == "EN_ROUTE"
+
+
+def test_websocket_stream_connection(client):
+    """
+    Test live WebSocket push connection handshake and ping/pong exchange.
+    """
+    with client.websocket_connect("/api/ws") as websocket:
+        initial = websocket.receive_json()
+        assert initial["type"] == "CONNECTION_ESTABLISHED"
+        websocket.send_text("ping")
+        pong = websocket.receive_json()
+        assert pong["type"] == "pong"
+

@@ -1,0 +1,14 @@
+{
+  "name": "sern-network",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Smart Emergency Response Network - AI-Powered Accident Detection and Intelligent Emergency Response",
+  "scripts": {
+    "dev": "npm run dev --prefix frontend",
+    "start": "powershell -ExecutionPolicy Bypass -File .\\start-all.ps1",
+    "backend": ".\\.venv\\Scripts\\python.exe -m uvicorn app.main:app --app-dir backend --reload --port 8000",
+    "frontend": "npm run dev --prefix frontend",
+    "build:frontend": "npm run build --prefix frontend",
+    "test:backend": ".\\.venv\\Scripts\\python.exe -m pytest backend/tests -v"
+  }
+}

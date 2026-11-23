@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from app.database.connection import get_db
 from app.schemas.routing import RouteCreate, RouteResponse
 from app.services.routing_adapter import RoutingAdapterService
+from app.services.websocket_manager import ws_manager
 
 router = APIRouter(prefix="/routing", tags=["Routing Integration Boundary"])
 
@@ -24,7 +25,9 @@ def receive_route_from_member4(
         )
     try:
         route = RoutingAdapterService.store_route_info(db, payload)
-        return route
+        resp = RouteResponse.model_validate(route)
+        ws_manager.broadcast_sync("ROUTE_UPDATED", resp.model_dump())
+        return resp
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except Exception as exc:
@@ -33,13 +36,19 @@ def receive_route_from_member4(
 
 @router.get("/{emergency_id}", response_model=RouteResponse)
 def get_route_for_emergency(emergency_id: int, db: Session = Depends(get_db)):
-    """Retrieve stored road-network route information for an emergency."""
+    """Retrieve stored road-network route information for an emergency (auto-generating mock route if none exists)."""
     route = RoutingAdapterService.get_route_info(db, emergency_id)
     if not route:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"No route information found for Emergency #{emergency_id}."
-        )
+        try:
+            route = RoutingAdapterService.generate_dev_mock_route(db, emergency_id)
+            resp = RouteResponse.model_validate(route)
+            ws_manager.broadcast_sync("ROUTE_UPDATED", resp.model_dump())
+            return resp
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No route information found for Emergency #{emergency_id}."
+            )
     return route
 
 
@@ -51,7 +60,9 @@ def generate_mock_route_endpoint(emergency_id: int, db: Session = Depends(get_db
     """
     try:
         route = RoutingAdapterService.generate_dev_mock_route(db, emergency_id)
-        return route
+        resp = RouteResponse.model_validate(route)
+        ws_manager.broadcast_sync("ROUTE_UPDATED", resp.model_dump())
+        return resp
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 

@@ -5,8 +5,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import settings
-from app.database.connection import engine
+from app.database.connection import engine, SessionLocal
 from app.database.base import Base
+from app.database.seed import seed_database_if_empty
 import app.models  # Ensure all SQLAlchemy models are registered
 from app.routes import (
     health_router,
@@ -16,6 +17,7 @@ from app.routes import (
     hospitals_router,
     notifications_router,
     routing_router,
+    ws_router,
 )
 
 # Configure logging
@@ -32,6 +34,14 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing database tables for SERN MVP...")
     Base.metadata.create_all(bind=engine)
     logger.info("Database tables initialized successfully.")
+    
+    # Seed initial data if tables are empty
+    try:
+        with SessionLocal() as db_session:
+            seed_database_if_empty(db_session)
+    except Exception as exc:
+        logger.warning("Could not run initial seed: %s", exc)
+
     yield
     # Application shutdown
     logger.info("Shutting down SERN application...")
@@ -82,6 +92,8 @@ app.include_router(emergencies_router, prefix="/api")
 app.include_router(hospitals_router, prefix="/api")
 app.include_router(notifications_router, prefix="/api")
 app.include_router(routing_router, prefix="/api")
+app.include_router(ws_router, prefix="/api")
+app.include_router(ws_router)
 
 
 @app.get("/")

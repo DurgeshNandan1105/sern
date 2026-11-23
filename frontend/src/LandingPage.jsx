@@ -1,4 +1,3 @@
-
 import {
   Activity,
   ArrowRight,
@@ -28,19 +27,21 @@ function LandingPage({ onEnterDashboard }) {
           <a href="#features">Features</a>
         </div>
 
-        <button
-          className="landing-login-btn"
-          onClick={onEnterDashboard}
-        >
-          Enter Dashboard <ArrowRight size={17} />
-        </button>
+        <div>
+          <button
+            className="landing-login-btn"
+            onClick={onEnterDashboard}
+          >
+            Personnel Sign In <ArrowRight size={17} />
+          </button>
+        </div>
       </nav>
 
       <section className="landing-hero" id="home">
         <div className="hero-content">
           <span className="hero-tag">
             <ShieldCheck size={16} />
-            SMART EMERGENCY RESPONSE
+            MUNICIPAL INTELLIGENT DISPATCH NETWORK
           </span>
 
           <h1>
@@ -49,21 +50,24 @@ function LandingPage({ onEnterDashboard }) {
           </h1>
 
           <p>
-            SERN connects emergency alerts, ambulance services,
-            traffic monitoring and hospitals through one
-            intelligent response platform.
+            SERN bridges AI vehicle telemetry accident classification,
+            nearest-ambulance Haversine dispatch, green traffic corridors, and hospital trauma desk coordination
+            into one zero-latency emergency ecosystem.
           </p>
 
-          <button
-            className="hero-btn"
-            onClick={onEnterDashboard}
-          >
-            Explore Dashboard <ArrowRight size={19} />
-          </button>
+          <div style={{ display: "flex", gap: "12px", marginTop: "10px", flexWrap: "wrap" }}>
+            <button
+              className="hero-btn"
+              style={{ background: "#0284c7", border: "none" }}
+              onClick={onEnterDashboard}
+            >
+              🛡️ Launch Emergency Command Center <ArrowRight size={19} />
+            </button>
+          </div>
 
           <div className="hero-note">
             <Activity size={16} />
-            Emergency coordination made smarter
+            Two-Factor Verified · PostGIS Indexed · WebSockets Synced
           </div>
         </div>
 
@@ -86,15 +90,15 @@ function LandingPage({ onEnterDashboard }) {
               <Ambulance size={23} />
               <div>
                 <strong>Ambulance Tracking</strong>
-                <p>Monitor unit locations</p>
+                <p>Live Turn-by-Turn GPS</p>
               </div>
             </div>
 
             <div className="visual-item">
               <MapPin size={23} />
               <div>
-                <strong>Traffic Monitoring</strong>
-                <p>View traffic conditions</p>
+                <strong>Traffic Preemption</strong>
+                <p>Green corridor signals</p>
               </div>
             </div>
 
@@ -102,12 +106,12 @@ function LandingPage({ onEnterDashboard }) {
               <HeartPulse size={23} />
               <div>
                 <strong>Hospital Coordination</strong>
-                <p>View hospital availability</p>
+                <p>Trauma bed availability</p>
               </div>
             </div>
 
             <span className="demo-label">
-              DEMONSTRATION PREVIEW
+              LIVE MUNICIPAL CONSOLE
             </span>
           </div>
         </div>
@@ -116,49 +120,48 @@ function LandingPage({ onEnterDashboard }) {
       <section className="landing-about" id="about">
         <h2>About SERN</h2>
         <p>
-          SERN is an emergency response coordination platform
-          designed to bring emergency information, ambulance
-          services, traffic updates and hospital coordination
-          together in one place.
+          SERN (Smart Emergency Response Network) is an integrated platform designed
+          to detect accidents using Machine Learning, dispatch the nearest available
+          ambulance using spatial routing, and alert hospitals in real-time.
         </p>
       </section>
 
       <section className="landing-features" id="features">
-        <h2>Our Key Features</h2>
+        <h2>Key Platform Capabilities</h2>
 
-        <div className="feature-grid">
+        <div className="features-grid">
           <div className="feature-card">
-            <Siren size={30} />
-            <h3>Accident Alerts</h3>
-            <p>View and monitor emergency incidents.</p>
+            <Activity size={32} />
+            <h3>AI Accident Classification</h3>
+            <p>
+              Scikit-learn Random Forest classifier detects collision signatures from accelerometer
+              and gyroscope telemetry with sub-second inference.
+            </p>
           </div>
 
           <div className="feature-card">
-            <Ambulance size={30} />
-            <h3>Ambulance Tracking</h3>
-            <p>Monitor ambulance locations and status.</p>
+            <Ambulance size={32} />
+            <h3>Intelligent Dispatch & GPS</h3>
+            <p>
+              Automated Haversine spatial indexing pairs incidents with the nearest available unit
+              and streams live turn-by-turn navigation telemetry.
+            </p>
           </div>
 
           <div className="feature-card">
-            <MapPin size={30} />
-            <h3>Traffic Monitoring</h3>
-            <p>Visualize traffic conditions and road status.</p>
-          </div>
-
-          <div className="feature-card">
-            <HeartPulse size={30} />
-            <h3>Hospital Coordination</h3>
-            <p>View hospital information and bed availability.</p>
+            <HeartPulse size={32} />
+            <h3>Trauma Center Coordination</h3>
+            <p>
+              Instant bi-directional alerts to emergency trauma rooms with patient condition,
+              inbound vehicle telemetry, and dynamic ETA estimation.
+            </p>
           </div>
         </div>
       </section>
 
-      <footer className="landing-footer" id="contact">
-        <h3>SERN – Smart Emergency Response Network</h3>
-        <p>Technology for faster emergency coordination.</p>
-        <span>© 2026 SERN. All rights reserved.</span>
+      <footer className="landing-footer">
+        <p>© 2026 SERN - Smart Emergency Response Network. All rights reserved.</p>
       </footer>
-
     </div>
   );
 }

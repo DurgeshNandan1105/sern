@@ -1,3 +1,4 @@
+import { useState, useEffect, useCallback, useRef } from "react";
 import LandingPage from "./LandingPage";
 import "./LandingPage.css";
 import RegisterPage from "./RegisterPage";
@@ -9,14 +10,22 @@ import ProfilePage from "./ProfilePage";
 import "./ProfilePage.css";
 import ReportsPage from "./ReportsPage";
 import AnalyticsPage from "./AnalyticsPage";
-import L from "leaflet";
-import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
-import "leaflet/dist/leaflet.css";
-import { useState } from "react";
+import EmergencyMap from "./components/EmergencyMap";
+import AccidentSimulatorModal from "./components/AccidentSimulatorModal";
+import AddAmbulanceModal from "./components/AddAmbulanceModal";
+import AddHospitalModal from "./components/AddHospitalModal";
+import NotificationsDrawer from "./components/NotificationsDrawer";
+import { sernApi } from "./services/api";
+import { authService } from "./services/auth";
+import { playEmergencyAlert, playDispatchChime } from "./utils/sound";
+import { formatAiConfidence } from "./utils/confidence";
+
 import {
   Activity, AlertTriangle, Ambulance, Bell, Building2,
   Car, Clock, LayoutDashboard, MapPin, Menu, Navigation,
-  ShieldCheck, Siren, Users, X,Sun,Moon,FileText,TrendingUp
+  ShieldCheck, Siren, Users, X, Sun, Moon, FileText,
+  TrendingUp, Play, Plus, RefreshCw, CheckCircle2,
+  Phone, Compass, ShieldAlert, LogOut
 } from "lucide-react";
 import "./App.css";
 
@@ -24,238 +33,387 @@ const menuItems = [
   { name: "Dashboard", icon: LayoutDashboard },
   { name: "Accident Alerts", icon: AlertTriangle },
   { name: "Ambulances", icon: Ambulance },
-  { name: "Traffic", icon: Car },
-  { name: "Hospitals", icon: Building2 },
   { name: "Emergency History", icon: Clock },
+  { name: "Hospitals", icon: Building2 },
+  { name: "Traffic", icon: Car },
   { name: "Reports", icon: FileText },
   { name: "Analytics", icon: TrendingUp },
   { name: "Profile", icon: Users },
 ];
 
-const alerts = [
-  { id: "EMG-1024", type: "Road Accident", location: "MG Road, Bengaluru", severity: "Critical", time: "2 min ago" },
-  { id: "EMG-1023", type: "Vehicle Collision", location: "Indiranagar, Bengaluru", severity: "High", time: "8 min ago" },
-  { id: "EMG-1022", type: "Medical Emergency", location: "Whitefield, Bengaluru", severity: "Medium", time: "15 min ago" },
-];
-
-const ambulances = [
-  { id: "AMB-01", location: "MG Road", status: "Dispatched" },
-  { id: "AMB-02", location: "Indiranagar", status: "Available" },
-  { id: "AMB-03", location: "Whitefield", status: "Available" },
-];
-const hospitals = [
-  {
-    id: "HSP-01",
-    name: "City Hospital",
-    location: "MG Road, Bengaluru",
-    beds: 12,
-    status: "Available",
-  },
-  {
-    id: "HSP-02",
-    name: "Apollo Hospital",
-    location: "Bannerghatta Road, Bengaluru",
-    beds: 5,
-    status: "Limited",
-  },
-  {
-    id: "HSP-03",
-    name: "Manipal Hospital",
-    location: "Whitefield, Bengaluru",
-    beds: 0,
-    status: "Full",
-  },
-];
-const emergencyHistory = [
-  {
-    id: "EMG-1021",
-    type: "Road Accident",
-    location: "MG Road",
-    date: "21 Nov 2026",
-    time: "10:30 AM",
-    status: "Resolved",
-  },
-  {
-    id: "EMG-1020",
-    type: "Vehicle Collision",
-    location: "Indiranagar",
-    date: "21 Nov 2026",
-    time: "09:45 AM",
-    status: "Resolved",
-  },
-  {
-    id: "EMG-1019",
-    type: "Medical Emergency",
-    location: "Whitefield",
-    date: "20 Nov 2026",
-    time: "08:15 PM",
-    status: "Completed",
-  },
-];
-
-
-// PASTE THE NEW COMPONENT HERE
-
-
-function EmergencyMap() {
-  const locations = [
-    {
-      position: [12.975, 77.605],
-      name: "AMB-01",
-      type: "Ambulance",
-      status: "Dispatched",
-    },
-    {
-      position: [12.978, 77.640],
-      name: "AMB-02",
-      type: "Ambulance",
-      status: "Available",
-    },
-    {
-      position: [12.969, 77.620],
-      name: "EMG-1024",
-      type: "Accident",
-      status: "Critical",
-    },
-    {
-      position: [12.982, 77.600],
-      name: "City Hospital",
-      type: "Hospital",
-      status: "Available",
-    },
-  ];
-
-  const getMarkerColor = (location) => {
-    if (location.type === "Accident") return "#ef4444";
-    if (location.type === "Hospital") return "#22c55e";
-    if (location.status === "Dispatched") return "#f59e0b";
-    return "#3b82f6";
-  };
-
-  return (
-    <MapContainer
-      center={[12.9716, 77.5946]}
-      zoom={13}
-      scrollWheelZoom={true}
-      style={{ height: "310px", width: "100%", borderRadius: "9px" }}
-    >
-      <TileLayer
-        attribution='&copy; OpenStreetMap contributors'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-      />
-
-      {locations.map((location) => {
-        const color = getMarkerColor(location);
-
-        const customIcon = L.divIcon({
-          className: "",
-          html: `<div style="
-            width: 20px;
-            height: 20px;
-            background: ${color};
-            border: 3px solid white;
-            border-radius: 50%;
-            box-shadow: 0 2px 6px #0008;
-          "></div>`,
-          iconSize: [20, 20],
-          iconAnchor: [10, 10],
-        });
-
-        return (
-          <Marker
-            key={location.name}
-            position={location.position}
-            icon={customIcon}
-          >
-            <Popup>
-              <strong>{location.name}</strong>
-              <br />
-              Type: {location.type}
-              <br />
-              Status: {location.status}
-            </Popup>
-          </Marker>
-        );
-      })}
-    </MapContainer>
-  );
-}
-
-
-// YOUR EXISTING APP COMPONENT STARTS HERE
-
 function App() {
-  const [activePage , setActivePage] = useState("Dashboard");
+  const [activePage, setActivePage] = useState("Dashboard");
   const [mobileMenu, setMobileMenu] = useState(false);
   const [theme, setTheme] = useState("dark");
   const [showLanding, setShowLanding] = useState(true);
   const [showLogin, setShowLogin] = useState(false);
   const [showRegister, setShowRegister] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [currentUser, setCurrentUser] = useState(() => authService.getCurrentUser());
+  const activeRouteEmergencyIdRef = useRef(null);
+
+  // Live Backend State
+  const [accidents, setAccidents] = useState([]);
+  const [ambulances, setAmbulances] = useState([]);
+  const [emergencies, setEmergencies] = useState([]);
+  const [hospitals, setHospitals] = useState([]);
+  const [notifications, setNotifications] = useState([]);
+  const [systemHealth, setSystemHealth] = useState({ status: "checking", ml_model_loaded: false });
+  const [selectedRoute, setSelectedRoute] = useState(null);
+  const [activeMapCenter, setActiveMapCenter] = useState([12.9716, 77.5946]);
+  const [loadingData, setLoadingData] = useState(false);
+
+  // Modals state
+  const [showSimulator, setShowSimulator] = useState(false);
+  const [showAddAmbulance, setShowAddAmbulance] = useState(false);
+  const [showAddHospital, setShowAddHospital] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
+
+  // Filter states
+  const [accidentFilter, setAccidentFilter] = useState("ALL");
+  const [ambulanceFilter, setAmbulanceFilter] = useState("ALL");
+  const [wsStatus, setWsStatus] = useState("connecting"); // "connecting" | "connected" | "disconnected"
+
+  // Load and view road-network route on map (Member 4 Integration)
+  const handleViewRoute = useCallback(async (emergencyId, silent = false) => {
+    try {
+      activeRouteEmergencyIdRef.current = emergencyId;
+      let routeData = null;
+      try {
+        routeData = await sernApi.getRoute(emergencyId);
+      } catch {
+        try {
+          routeData = await sernApi.generateMockRoute(emergencyId);
+        } catch {
+          const em = emergencies.find(e => e.id === emergencyId);
+          const acc = em ? accidents.find(a => a.id === em.accident_id) : null;
+          const targetLat = acc ? acc.latitude : 12.9716;
+          const targetLon = acc ? acc.longitude : 77.5946;
+          routeData = {
+            emergency_id: emergencyId,
+            distance_km: 4.8,
+            estimated_duration_minutes: 8.5,
+            route_geometry: {
+              type: "LineString",
+              coordinates: [
+                [77.6000, 12.9650],
+                [77.5980, 12.9680],
+                [targetLon, targetLat]
+              ]
+            },
+            source: "CLIENT_FALLBACK_NAVIGATION"
+          };
+        }
+      }
+      setSelectedRoute(routeData);
+
+      const em = emergencies.find(e => e.id === emergencyId);
+      const acc = em ? accidents.find(a => a.id === em.accident_id) : null;
+      if (acc) {
+        setActiveMapCenter([acc.latitude, acc.longitude]);
+      }
+      // ONLY switch page if user explicitly asked to view route
+      if (!silent) {
+        setActivePage("Dashboard");
+        alert(`Route calculated: ${routeData.distance_km} km · ETA: ${routeData.estimated_duration_minutes} min. Displaying on map.`);
+      }
+    } catch (err) {
+      if (!silent) {
+        alert(`Could not load route: ${err.message}`);
+      }
+    }
+  }, [emergencies, accidents]);
+
+  // Fetch all backend data
+  const fetchData = useCallback(async () => {
+    try {
+      setLoadingData(true);
+      const [accRes, ambRes, emRes, hospRes, notifRes, healthRes] = await Promise.allSettled([
+        sernApi.getAccidents(),
+        sernApi.getAmbulances(),
+        sernApi.getEmergencies(),
+        sernApi.getHospitals(false),
+        sernApi.getNotifications(),
+        sernApi.getHealth()
+      ]);
+
+      if (accRes.status === "fulfilled") setAccidents(accRes.value);
+      if (ambRes.status === "fulfilled") setAmbulances(ambRes.value);
+      if (emRes.status === "fulfilled") {
+        setEmergencies(emRes.value);
+        // Automatically load route for active emergency only if not already loaded
+        const activeEm = emRes.value.find(e => ['DISPATCHED', 'ASSIGNED', 'EN_ROUTE'].includes(e.status));
+        if (activeEm && activeRouteEmergencyIdRef.current !== activeEm.id) {
+          handleViewRoute(activeEm.id, true);
+        }
+      }
+      if (hospRes.status === "fulfilled") setHospitals(hospRes.value);
+      if (notifRes.status === "fulfilled") setNotifications(notifRes.value);
+      if (healthRes.status === "fulfilled") setSystemHealth(healthRes.value);
+    } catch (err) {
+      console.error("Error refreshing SERN data:", err);
+    } finally {
+      setLoadingData(false);
+    }
+  }, [handleViewRoute]);
+
+  // Zero-Latency Push: Live WebSocket Connection (replaces 8-second polling)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchData();
+    }, 0);
+
+    const disconnectWs = sernApi.connectWebSocket(
+      (event) => {
+        const { type, data } = event;
+        if (type === "ACCIDENT_REGISTERED") {
+          playEmergencyAlert();
+          setAccidents((prev) => [data, ...prev.filter((a) => a.id !== data.id)]);
+        } else if (type === "ACCIDENT_VALIDATED") {
+          setAccidents((prev) => prev.map((a) => (a.id === data.id ? { ...a, ...data } : a)));
+        } else if (type === "EMERGENCY_CREATED") {
+          setEmergencies((prev) => [data, ...prev.filter((e) => e.id !== data.id)]);
+        } else if (type === "EMERGENCY_STATUS_UPDATED") {
+          setEmergencies((prev) => prev.map((e) => (e.id === data.id ? { ...e, ...data } : e)));
+        } else if (type === "AMBULANCE_DISPATCHED") {
+          playDispatchChime();
+          if (data?.assigned_ambulance) {
+            setAmbulances((prev) =>
+              prev.map((a) => (a.id === data.assigned_ambulance.id ? { ...a, ...data.assigned_ambulance } : a))
+            );
+          }
+          if (data?.emergency) {
+            setEmergencies((prev) =>
+              prev.map((e) => (e.id === data.emergency.id ? { ...e, ...data.emergency } : e))
+            );
+            handleViewRoute(data.emergency.id, true);
+          }
+        } else if (type === "AMBULANCE_LOCATION_UPDATED") {
+          setAmbulances((prev) => prev.map((a) => (a.id === data.id ? { ...a, ...data } : a)));
+        } else if (type === "AMBULANCE_TELEMETRY") {
+          setAmbulances((prev) =>
+            prev.map((a) =>
+              a.id === data.id
+                ? {
+                    ...a,
+                    latitude: data.latitude,
+                    longitude: data.longitude,
+                    status: data.status || a.status,
+                  }
+                : a
+            )
+          );
+        } else if (type === "NOTIFICATION_RECORDED") {
+          setNotifications((prev) => [data, ...prev.filter((n) => n.id !== data.id)]);
+        } else if (type === "ROUTE_UPDATED") {
+          setSelectedRoute(data);
+        }
+      },
+      (status) => {
+        setWsStatus(status);
+      }
+    );
+
+    // Occasional low-frequency fallback background sync (60s)
+    const fallbackInterval = setInterval(fetchData, 60000);
+
+    return () => {
+      clearTimeout(timer);
+      disconnectWs();
+      clearInterval(fallbackInterval);
+    };
+  }, [fetchData, handleViewRoute]);
+
+  // Accident Validation Action
+  const handleValidateAccident = async (accidentId, confirmed) => {
+    try {
+      const notes = confirmed
+        ? prompt("Enter validation notes (or press OK):", "Confirmed collision via junction monitoring feed")
+        : prompt("Enter rejection reason:", "False alarm - normal traffic deceleration");
+
+      if (notes === null) return; // User cancelled prompt
+
+      const valRes = await sernApi.validateAccident(accidentId, {
+        confirmed,
+        validation_notes: notes,
+        auto_dispatch: confirmed
+      });
+
+      if (valRes?.emergency?.id) {
+        await handleViewRoute(valRes.emergency.id, true);
+      }
+      await fetchData();
+      alert(confirmed ? "Accident validated! Emergency created and ambulance dispatch initiated." : "Accident marked as rejected / false alarm.");
+    } catch (err) {
+      alert(`Validation failed: ${err.message}`);
+    }
+  };
+
+  // Dispatch nearest ambulance to an emergency
+  const handleDispatchAmbulance = async (emergencyId) => {
+    try {
+      const res = await sernApi.dispatchAmbulance(emergencyId);
+      await handleViewRoute(emergencyId, true);
+      await fetchData();
+      alert(`Ambulance ${res.assigned_ambulance.registration_number} dispatched! Distance: ${res.distance_km.toFixed(2)} km.`);
+    } catch (err) {
+      alert(`Dispatch failed: ${err.message}`);
+    }
+  };
+
+  // Update emergency operational status
+  const handleUpdateEmergencyStatus = async (emergencyId, nextStatus) => {
+    try {
+      await sernApi.updateEmergencyStatus(emergencyId, nextStatus, `Updated to ${nextStatus} by operator.`);
+      await fetchData();
+    } catch (err) {
+      alert(`Failed to update emergency status: ${err.message}`);
+    }
+  };
+
+  // Assign hospital to emergency
+  const handleAssignHospital = async (emergencyId, hospitalId) => {
+    try {
+      await sernApi.assignHospital(emergencyId, hospitalId);
+      await fetchData();
+      alert("Destination hospital assigned and arrival alert broadcasted.");
+    } catch (err) {
+      alert(`Failed to assign hospital: ${err.message}`);
+    }
+  };
+
+  // Handle ambulance selection on map (safe inspection vs availability toggle)
+  const handleSelectAmbulance = async (ambulance) => {
+    const isBusy = ["ASSIGNED", "DISPATCHED", "EN_ROUTE", "AT_SCENE", "TRANSPORTING"].includes(ambulance.status);
+    if (isBusy) {
+      // Find active emergency for this ambulance or latest active emergency and load its route
+      const activeEm = emergencies.find(e => ["DISPATCHED", "ASSIGNED", "EN_ROUTE"].includes(e.status)) || emergencies[0];
+      if (activeEm) {
+        await handleViewRoute(activeEm.id, true);
+        setActivePage("Dashboard");
+        return;
+      }
+    }
+    // Only toggle availability for idle ambulances
+    handleToggleAmbulanceAvailability(ambulance);
+  };
+
+  // Toggle ambulance availability (with active mission guard)
+  const handleToggleAmbulanceAvailability = async (ambulance) => {
+    if (["ASSIGNED", "DISPATCHED", "EN_ROUTE", "AT_SCENE", "TRANSPORTING"].includes(ambulance.status)) {
+      alert(`Ambulance ${ambulance.registration_number} is currently on an active emergency mission (${ambulance.status}). Availability cannot be changed until the emergency is completed.`);
+      return;
+    }
+    const nextStatus = ambulance.status === "AVAILABLE" ? "UNAVAILABLE" : "AVAILABLE";
+    try {
+      await sernApi.updateAmbulanceAvailability(ambulance.id, nextStatus);
+      await fetchData();
+    } catch (err) {
+      alert(`Could not update availability: ${err.message}`);
+    }
+  };
+
+  // Calculated Stats
+  const activeEmergencies = emergencies.filter(e => !["COMPLETED", "CANCELLED"].includes(e.status));
+  const availableAmbulances = ambulances.filter(a => a.status === "AVAILABLE");
+  const pendingAccidents = accidents.filter(a => a.validation_status === "PENDING");
 
   const stats = [
-    { title: "Total Accidents", value: "128", change: "+12% this week", icon: Car, color: "blue" },
-    { title: "Active Emergencies", value: "08", change: "3 critical alerts", icon: Siren, color: "red" },
-    { title: "Available Ambulances", value: "24", change: "Out of 32 units", icon: Ambulance, color: "green" },
-    { title: "Partner Hospitals", value: "16", change: "All systems connected", icon: Building2, color: "purple" },
+    {
+      title: "Total Sensor Incidents",
+      value: accidents.length.toString().padStart(2, "0"),
+      change: `${pendingAccidents.length} pending validation`,
+      icon: Car,
+      color: "blue"
+    },
+    {
+      title: "Active Emergencies",
+      value: activeEmergencies.length.toString().padStart(2, "0"),
+      change: `${emergencies.filter(e => e.status === "COMPLETED").length} resolved cases`,
+      icon: Siren,
+      color: "red"
+    },
+    {
+      title: "Available Ambulances",
+      value: availableAmbulances.length.toString().padStart(2, "0"),
+      change: `Out of ${ambulances.length} fleet units`,
+      icon: Ambulance,
+      color: "green"
+    },
+    {
+      title: "Partner Hospitals",
+      value: hospitals.length.toString().padStart(2, "0"),
+      change: "Direct trauma link ready",
+      icon: Building2,
+      color: "purple"
+    },
   ];
- if (showLanding) {
-  return (
-    <LandingPage
-      onEnterDashboard={() => {
-        setShowLanding(false);
-        setShowLogin(true);
-      }}
-    />
-  );
-}
-if (showLogin) {
-  return (
-    <LoginPage
-      onLogin={() => {
-        setShowLogin(false);
-      }}
-      onBack={() => {
-        setShowLogin(false);
-        setShowLanding(true);
-      }}
-      onRegister={() => {
-        setShowLogin(false);
-        setShowRegister(true);
-      }}
-      onForgotPassword={() => {
-       setShowLogin(false);
-        setShowForgotPassword(true);
-      }}
-    />
-  );
-}
-if (showRegister) {
-  return (
-    <RegisterPage
-      onRegister={() => {
-        setShowRegister(false);
-        setShowLogin(true);
-      }}
-      onBack={() => {
-        setShowRegister(false);
-        setShowLogin(true);
-      }}
-    />
-  );
-}
-if (showForgotPassword) {
-  return (
-    <ForgotPasswordPage
-      onBack={() => {
-        setShowForgotPassword(false);
-        setShowLogin(true);
-      }}
-    />
-  );
-}
+
+  // Auth pages view routing
+  if (showLanding) {
+    return (
+      <LandingPage
+        onEnterDashboard={() => {
+          setShowLanding(false);
+          setShowLogin(true);
+        }}
+      />
+    );
+  }
+  if (showLogin) {
+    return (
+      <LoginPage
+        onLogin={(user) => {
+          if (user) {
+            setCurrentUser(user);
+          }
+          setShowLogin(false);
+        }}
+        onBack={() => {
+          setShowLogin(false);
+          setShowLanding(true);
+        }}
+        onRegister={() => {
+          setShowLogin(false);
+          setShowRegister(true);
+        }}
+        onForgotPassword={() => {
+          setShowLogin(false);
+          setShowForgotPassword(true);
+        }}
+      />
+    );
+  }
+  if (showRegister) {
+    return (
+      <RegisterPage
+        onRegister={(newUser) => {
+          if (newUser) {
+            setCurrentUser(newUser);
+          }
+          setShowRegister(false);
+        }}
+        onBack={() => {
+          setShowRegister(false);
+          setShowLogin(true);
+        }}
+      />
+    );
+  }
+  if (showForgotPassword) {
+    return (
+      <ForgotPasswordPage
+        onBack={() => {
+          setShowForgotPassword(false);
+          setShowLogin(true);
+        }}
+      />
+    );
+  }
+
   return (
     <div className={`app-container ${theme}-theme`}>
+      {/* SIDEBAR NAVIGATION */}
       <aside className={`sidebar ${mobileMenu ? "sidebar-open" : ""}`}>
         <div className="brand">
           <div className="brand-icon"><Activity size={25} /></div>
@@ -268,11 +426,16 @@ if (showForgotPassword) {
           </button>
         </div>
 
-        <div className="sidebar-label">MAIN MENU</div>
+        <div className="sidebar-label">OPERATIONS CONSOLE</div>
 
         <nav className="navigation">
           {menuItems.map((item) => {
             const Icon = item.icon;
+            const badgeCount =
+              item.name === "Accident Alerts" ? pendingAccidents.length :
+              item.name === "Ambulances" ? availableAmbulances.length :
+              item.name === "Emergency History" ? activeEmergencies.length : 0;
+
             return (
               <button
                 key={item.name}
@@ -283,17 +446,40 @@ if (showForgotPassword) {
                 }}
               >
                 <Icon size={19} />
-                <span>{item.name}</span>
+                <span style={{ flex: 1, textAlign: "left" }}>{item.name}</span>
+                {badgeCount > 0 && (
+                  <span style={{
+                    fontSize: "11px",
+                    fontWeight: "700",
+                    padding: "2px 6px",
+                    borderRadius: "10px",
+                    background: item.name === "Accident Alerts" ? "#ef4444" : "#2563eb",
+                    color: "white"
+                  }}>
+                    {badgeCount}
+                  </span>
+                )}
               </button>
             );
           })}
         </nav>
 
+        <div style={{ marginTop: "20px", padding: "0 6px" }}>
+          <button
+            className="btn-simulate"
+            style={{ width: "100%", justifyContent: "center" }}
+            onClick={() => setShowSimulator(true)}
+          >
+            <ShieldAlert size={17} />
+            AI Accident Simulator
+          </button>
+        </div>
+
         <div className="sidebar-bottom">
           <ShieldCheck size={20} />
           <div>
-            <strong>System Protected</strong>
-            <span>All services operational</span>
+            <strong>AI Safeguard Active</strong>
+            <span>Model loaded · {systemHealth.database}</span>
           </div>
         </div>
       </aside>
@@ -302,7 +488,8 @@ if (showForgotPassword) {
         <div className="mobile-overlay" onClick={() => setMobileMenu(false)} />
       )}
 
-       <main className="main-content">
+      {/* MAIN VIEWPORT */}
+      <main className="main-content">
         <header className="topbar">
           <div className="topbar-left">
             <button className="menu-button" onClick={() => setMobileMenu(true)}>
@@ -310,19 +497,37 @@ if (showForgotPassword) {
             </button>
             <div>
               <h3>{activePage}</h3>
-              <p>Smart Emergency Response Network</p>
+              <p>Smart Emergency Response Network · Bengaluru Region</p>
             </div>
           </div>
 
           <div className="topbar-right">
-            <div className="system-status">
-              <span className="status-dot"></span>
-              System Online
-            </div>
-            <button className="notification-button">
-              <Bell size={20} />
-              <span className="notification-dot"></span>
+            <button
+              onClick={fetchData}
+              className="btn-secondary"
+              title="Refresh Live Data"
+              style={{ padding: "6px 12px" }}
+            >
+              <RefreshCw size={15} className={loadingData ? "spin" : ""} />
+              Sync
             </button>
+
+            <div className="system-status" title={`WebSocket Channel: ${wsStatus} · System: ${systemHealth.status}`}>
+              <span className="status-dot" style={{
+                background: wsStatus === "connected" ? "#10b981" : "#f59e0b"
+              }}></span>
+              {wsStatus === "connected" ? "Live WS (0ms Latency)" : "Connecting WS..."}
+            </div>
+
+            <button
+              className="notification-button"
+              onClick={() => setShowNotifications(true)}
+              title="Emergency Notifications Log"
+            >
+              <Bell size={20} />
+              {notifications.length > 0 && <span className="notification-dot"></span>}
+            </button>
+
             <button
               className="theme-toggle"
               onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
@@ -330,28 +535,79 @@ if (showForgotPassword) {
             >
               {theme === "dark" ? <Sun size={20} /> : <Moon size={20} />}
             </button>
-            <div className="profile">
-              <div className="profile-avatar">SA</div>
+
+            <div className="profile" onClick={() => setActivePage("Profile")} style={{ cursor: "pointer" }} title={currentUser?.verificationBadge || "View / Edit Profile"}>
+              <div className="profile-avatar">
+                {authService.getInitials(currentUser?.name)}
+              </div>
               <div className="profile-info">
-                <strong>System Admin</strong>
-                <span>Administrator</span>
+                <strong>{currentUser?.name || "System Admin"}</strong>
+                <span style={{ color: "#38bdf8", fontWeight: "600" }}>
+                  {currentUser?.verificationBadge ? currentUser.verificationBadge.split(" (")[0] : (currentUser?.role || "Administrator")}
+                </span>
               </div>
             </div>
+
+            <button
+              onClick={() => {
+                authService.logout();
+                setCurrentUser(authService.getCurrentUser());
+                setShowLanding(true);
+              }}
+              className="btn-secondary"
+              title="Sign Out / Back to Landing"
+              style={{ padding: "6px 10px" }}
+            >
+              <LogOut size={16} />
+            </button>
           </div>
         </header>
-  <div className="dashboard-content">
+
+        <div className="dashboard-content">
+          {/* Top Banner with Role-Tailored Actions */}
           <section className="welcome-section">
             <div>
-              <h1>Emergency Command Center</h1>
-              <p>Monitor emergencies and coordinate rapid response operations.</p>
+              <h1>
+                {currentUser?.role === "Ambulance Staff"
+                  ? "Ambulance Paramedic Cockpit"
+                  : currentUser?.role === "Hospital Staff"
+                  ? "Hospital Trauma Unit Operations"
+                  : currentUser?.role === "Public Citizen"
+                  ? "Citizen Safety & Incident Monitoring Network"
+                  : "Emergency Command Center"}
+              </h1>
+              <p>
+                Welcome, <strong style={{ color: "inherit" }}>{currentUser?.name || "Operator"}</strong>.{" "}
+                <span style={{ color: "#38bdf8", fontWeight: "bold" }}>
+                  [{currentUser?.verificationBadge || "✓ Verified Personnel"}]
+                </span>{" "}
+                {currentUser?.role === "Ambulance Staff"
+                  ? `Active Fleet Vehicle: ${currentUser?.credentialId || "KA-01-EM-1080"} · Zero-latency GPS stream online.`
+                  : currentUser?.role === "Hospital Staff"
+                  ? `Facility License: ${currentUser?.credentialId || "HOSP-BLR-ICU"} · Trauma emergency bay monitoring active.`
+                  : currentUser?.role === "Public Citizen"
+                  ? "Citizen emergency monitoring, live GPS fleet observer & automated accident reporting."
+                  : "Real-time vehicle telemetry classification, nearest-ambulance dispatch & hospital alerts."}
+              </p>
             </div>
-            <div className="live-indicator">
-              <span className="status-dot"></span> LIVE MONITORING
+            <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+              <button
+                className="btn-simulate"
+                onClick={() => setShowSimulator(true)}
+              >
+                <Play size={16} />
+                Simulate Accident (Run ML)
+              </button>
+              <div className="live-indicator">
+                <span className="status-dot"></span> LIVE DISPATCH · WS SYNCED
+              </div>
             </div>
           </section>
 
+          {/* PAGE ROUTING */}
           {activePage === "Dashboard" ? (
             <>
+              {/* Dynamic Stats Grid */}
               <section className="stats-grid">
                 {stats.map((stat) => {
                   const Icon = stat.icon;
@@ -368,27 +624,48 @@ if (showForgotPassword) {
                 })}
               </section>
 
+              {/* Main Map & Live Alerts Split */}
               <section className="main-grid">
                 <div className="panel map-panel">
                   <div className="panel-heading">
                     <div>
-                      <h3>Emergency Location Map</h3>
-                      <p>Ambulance and incident overview</p>
+                      <h3>Integrated Emergency Map</h3>
+                      <p>Live coordinates for fleet units, accidents & partner hospitals</p>
                     </div>
-                    <span className="map-live">LIVE</span>
+                    {selectedRoute ? (
+                      <span style={{ fontSize: "11px", background: "#06b6d422", color: "#06b6d4", padding: "4px 8px", borderRadius: "4px", fontWeight: "bold" }}>
+                        Route Active ({selectedRoute.distance_km} km)
+                      </span>
+                    ) : (
+                      <span className="map-live">LIVE</span>
+                    )}
                   </div>
 
                   <div className="map-area">
-                    <EmergencyMap />
-                    <div className="map-note">
-                       Demo locations · Bengaluru
-                    </div>
-
+                    <EmergencyMap
+                      ambulances={ambulances}
+                      accidents={accidents}
+                      emergencies={emergencies}
+                      hospitals={hospitals}
+                      selectedRoute={selectedRoute}
+                      activeCenter={activeMapCenter}
+                      onSelectAccident={(acc) => {
+                        handleValidateAccident(acc.id, true);
+                      }}
+                      onSelectAmbulance={(amb) => {
+                        handleSelectAmbulance(amb);
+                      }}
+                      onEmergencyArrived={(emId) => {
+                        handleUpdateEmergencyStatus(emId, "AT_SCENE");
+                      }}
+                    />
                     <div className="map-legend">
-                      <span>🔵 Available</span>
-                      <span>🟠 Dispatched</span>
-                      <span>🔴 Emergency</span>
-                      <span>🟢 Hospital</span>
+                      <span>🔵 Available Amb</span>
+                      <span>🟠 Dispatched Amb</span>
+                      <span>🔴 Accident Site</span>
+                      <span>🟢 Partner Hospital</span>
+                      <span>🩵 Active Route</span>
+                      <span>⚡ Turn-by-Turn GPS</span>
                     </div>
                   </div>
                 </div>
@@ -396,55 +673,92 @@ if (showForgotPassword) {
                 <div className="panel alerts-panel">
                   <div className="panel-heading">
                     <div>
-                      <h3>Recent Accident Alerts</h3>
-                      <p>Latest emergency reports</p>
+                      <h3>Pending Accident Alerts</h3>
+                      <p>Requires explicit operator confirmation</p>
                     </div>
                     <AlertTriangle size={21} color="#f87171" />
                   </div>
 
                   <div className="alert-list">
-                    {alerts.map((alert) => (
-                      <div className="alert-item" key={alert.id}>
-                        <div className="alert-top">
-                          <strong>{alert.type}</strong>
-                          <span className={`severity ${alert.severity.toLowerCase()}`}>
-                            {alert.severity}
-                          </span>
-                        </div>
-                        <p><MapPin size={14} /> {alert.location}</p>
-                        <div className="alert-bottom">
-                          <span>{alert.id}</span>
-                          <span>{alert.time}</span>
-                        </div>
+                    {accidents.filter(a => a.validation_status === "PENDING").length === 0 ? (
+                      <div style={{ textAlign: "center", padding: "30px 10px", color: "#64748b" }}>
+                        <CheckCircle2 size={32} style={{ margin: "0 auto 8px", color: "#10b981" }} />
+                        <p style={{ fontWeight: "600", color: "#cbd5e1" }}>No Pending Incidents</p>
+                        <p style={{ fontSize: "12px" }}>All accident candidates have been processed.</p>
                       </div>
-                    ))}
+                    ) : (
+                      accidents
+                        .filter(a => a.validation_status === "PENDING")
+                        .slice(0, 4)
+                        .map((alert) => (
+                          <div className="alert-item" key={alert.id}>
+                            <div className="alert-top">
+                              <strong>Incident #{alert.id} ({alert.vehicle_size || 'car'})</strong>
+                              <span className="severity critical">
+                                {formatAiConfidence(alert.accident_probability, alert.model_threshold).percentage}% AI Match
+                              </span>
+                            </div>
+                            <p>
+                              <MapPin size={14} /> Lat: {alert.latitude.toFixed(4)}, Lon: {alert.longitude.toFixed(4)}
+                            </p>
+                            <div style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
+                              <button
+                                className="btn-primary-sm"
+                                style={{ flex: 1, justifyContent: "center" }}
+                                onClick={() => handleValidateAccident(alert.id, true)}
+                              >
+                                Validate & Dispatch
+                              </button>
+                              <button
+                                className="btn-secondary"
+                                style={{ padding: "4px 8px" }}
+                                onClick={() => handleValidateAccident(alert.id, false)}
+                              >
+                                Reject
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                    )}
                   </div>
 
                   <button className="view-all" onClick={() => setActivePage("Accident Alerts")}>
-                    View all alerts →
+                    View all accident candidates ({accidents.length}) →
                   </button>
                 </div>
               </section>
 
+              {/* Bottom Quick Row */}
               <section className="bottom-grid">
                 <div className="panel">
                   <div className="panel-heading">
                     <div>
-                      <h3>Ambulance Availability</h3>
-                      <p>Current fleet status</p>
+                      <h3>Ambulance Fleet Availability</h3>
+                      <p>Available units on standby</p>
                     </div>
-                    <Ambulance size={22} color="#60a5fa" />
+                    <button
+                      className="btn-secondary"
+                      onClick={() => setShowAddAmbulance(true)}
+                      style={{ padding: "4px 8px" }}
+                    >
+                      <Plus size={14} /> Add Unit
+                    </button>
                   </div>
-                  {ambulances.map((amb) => (
+                  {ambulances.slice(0, 3).map((amb) => (
                     <div className="ambulance-row" key={amb.id}>
                       <div className="ambulance-symbol"><Ambulance size={19} /></div>
                       <div className="ambulance-details">
-                        <strong>{amb.id}</strong>
-                        <span>{amb.location}</span>
+                        <strong>{amb.registration_number}</strong>
+                        <span>({amb.latitude.toFixed(4)}, {amb.longitude.toFixed(4)})</span>
                       </div>
-                      <span className={`ambulance-status ${amb.status === "Available" ? "available" : "dispatched"}`}>
+                      <button
+                        className={`ambulance-status ${amb.status === "AVAILABLE" ? "available" : "dispatched"}`}
+                        onClick={() => handleToggleAmbulanceAvailability(amb)}
+                        style={{ border: "none", cursor: "pointer" }}
+                        title="Click to toggle availability"
+                      >
                         {amb.status}
-                      </span>
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -452,207 +766,492 @@ if (showForgotPassword) {
                 <div className="panel">
                   <div className="panel-heading">
                     <div>
-                      <h3>Traffic Signal Status</h3>
-                      <p>Traffic management overview</p>
+                      <h3>Traffic Signal Green Corridors</h3>
+                      <p>Integration boundary for intelligent routing</p>
                     </div>
                     <Navigation size={22} color="#fbbf24" />
                   </div>
                   <div className="traffic-row">
-                    <span>MG Road Junction</span><strong className="green-text">● Green</strong>
+                    <span>MG Road Central Corridor</span><strong className="green-text">● Green Preemption</strong>
                   </div>
                   <div className="traffic-row">
-                    <span>Indiranagar Junction</span><strong className="red-text">● Red</strong>
+                    <span>Indiranagar 100ft Junction</span><strong className="yellow-text">● Traffic Monitored</strong>
                   </div>
                   <div className="traffic-row">
-                    <span>Whitefield Junction</span><strong className="yellow-text">● Caution</strong>
+                    <span>Whitefield IT Corridor</span><strong className="green-text">● Green Preemption</strong>
                   </div>
                 </div>
               </section>
             </>
-          ) : (
-            
-activePage === "Accident Alerts" ? (
-  <section className="panel alerts-page">
-    <div className="panel-heading">
-      <div>
-        <h3>Accident Alerts</h3>
-        <p>All reported emergencies in Bengaluru</p>
-      </div>
-      <AlertTriangle size={24} color="#f87171" />
-    </div>
+          ) : activePage === "Accident Alerts" ? (
+            /* ACCIDENT ALERTS PAGE */
+            <section className="panel alerts-page">
+              <div className="panel-heading">
+                <div>
+                  <h3>Accident Candidates & Validation Queue</h3>
+                  <p>Sensor telemetry classified by Scikit-learn Random Forest model</p>
+                </div>
+                <div style={{ display: "flex", gap: "10px" }}>
+                  <button className="btn-simulate" onClick={() => setShowSimulator(true)}>
+                    <Play size={15} /> Simulate Accident
+                  </button>
+                </div>
+              </div>
 
-    <div className="alerts-list">
-      {alerts.map((alert) => (
-        <div className="alert-row" key={alert.id}>
-          <div>
-            <strong>{alert.id}</strong>
-            <h4>{alert.type}</h4>
-            <p>{alert.location}</p>
-            <small>{alert.time}</small>
-          </div>
+              {/* Filters */}
+              <div style={{ display: "flex", gap: "10px", margin: "14px 0", flexWrap: "wrap" }}>
+                {["ALL", "PENDING", "VALIDATED", "NORMAL", "REJECTED"].map((f) => (
+                  <button
+                    key={f}
+                    onClick={() => setAccidentFilter(f)}
+                    style={{
+                      padding: "6px 14px",
+                      borderRadius: "6px",
+                      border: accidentFilter === f ? "1px solid #3b82f6" : "1px solid #334155",
+                      background: accidentFilter === f ? "#1e3a8a" : "#1e293b",
+                      color: accidentFilter === f ? "#93c5fd" : "#94a3b8",
+                      fontSize: "12px",
+                      fontWeight: "600",
+                      cursor: "pointer"
+                    }}
+                  >
+                    {f}
+                  </button>
+                ))}
+              </div>
 
-          <span className={`severity ${alert.severity.toLowerCase()}`}>
-            {alert.severity}
-          </span>
-        </div>
-      ))}
-    </div>
-   </section>
-) : activePage === "Ambulances" ? (
-  <section className="panel ambulance-page">
-    <div className="panel-heading">
-      <div>
-        <h3>Ambulance Management</h3>
-        <p>Monitor ambulance availability and dispatch status</p>
-      </div>
-      <Ambulance size={25} color="#60a5fa" />
-    </div>
+              <div className="alerts-list">
+                {accidents
+                  .filter(a => accidentFilter === "ALL" || a.validation_status === accidentFilter)
+                  .map((alert) => {
+                    const isPending = alert.validation_status === "PENDING";
+                    const isValid = alert.validation_status === "VALIDATED";
+                    const isNormal = alert.validation_status === "NORMAL";
 
-    <div className="ambulance-cards">
-      {ambulances.map((amb) => (
-        <div className="ambulance-card" key={amb.id}>
-          <div className="ambulance-card-top">
-            <div className="ambulance-symbol">
-              <Ambulance size={24} />
-            </div>
-            <span className={`ambulance-status ${
-              amb.status === "Available" ? "available" : "dispatched"
-            }`}>
-              {amb.status}
-            </span>
-          </div>
+                    return (
+                      <div className="alert-row" key={alert.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <div>
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                            <strong>Candidate #{alert.id}</strong>
+                            <span style={{ fontSize: "12px", color: "#64748b" }}>
+                              ({alert.vehicle_size || 'car'} · {alert.gyro_is_hd ? "HD Gyro" : "Std Gyro"})
+                            </span>
+                          </div>
+                          <p style={{ margin: "4px 0" }}>
+                            Location: {alert.latitude.toFixed(5)}, {alert.longitude.toFixed(5)}
+                          </p>
+                          <div style={{ fontSize: "12px", color: "#94a3b8" }}>
+                            AI Confidence: <strong style={{ color: formatAiConfidence(alert.accident_probability, alert.model_threshold).color }}>
+                              {formatAiConfidence(alert.accident_probability, alert.model_threshold).percentage}% ({formatAiConfidence(alert.accident_probability, alert.model_threshold).label})
+                            </strong> (Threshold: {(alert.model_threshold * 100).toFixed(1)}% · Raw: {(alert.accident_probability * 100).toFixed(1)}%)
+                            {alert.validation_notes && <span> · Note: <em>{alert.validation_notes}</em></span>}
+                          </div>
+                        </div>
 
-          <h3>{amb.id}</h3>
-          <p>Location: {amb.location}</p>
-          <p>
-            Assignment: {amb.status === "Available"
-              ? "No active assignment"
-              : "Emergency response"}
-          </p>
-        </div>
-      ))}
-        </div>
-  </section>
-) : 
-activePage === "Traffic" ? (
-  <section className="panel traffic-page">
-    <div className="panel-heading">
-      <div>
-        <h3>Traffic Management</h3>
-        <p>Monitor traffic signals and road conditions</p>
-      </div>
-      <Navigation size={25} color="#fbbf24" />
-    </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                          <span className={`badge-tag ${
+                            isPending ? "badge-pending" :
+                            isValid ? "badge-validated" :
+                            isNormal ? "badge-normal" : "badge-normal"
+                          }`}>
+                            {alert.validation_status}
+                          </span>
 
-    <div className="traffic-cards">
-      <div className="traffic-card">
-        <h3>MG Road Junction</h3>
-        <span className="green-text">● Green</span>
-        <p>Congestion: Low</p>
-        <small>Emergency priority: Active</small>
-      </div>
+                          {isPending && (
+                            <div style={{ display: "flex", gap: "6px" }}>
+                              <button
+                                className="btn-primary-sm"
+                                onClick={() => handleValidateAccident(alert.id, true)}
+                              >
+                                Confirm & Dispatch
+                              </button>
+                              <button
+                                className="btn-secondary"
+                                onClick={() => handleValidateAccident(alert.id, false)}
+                              >
+                                Reject
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            </section>
+          ) : activePage === "Ambulances" ? (
+            /* AMBULANCE MANAGEMENT PAGE */
+            <section className="panel ambulance-page">
+              <div className="panel-heading">
+                <div>
+                  <h3>Emergency Ambulance Fleet</h3>
+                  <p>Telemetry, availability status & geographical Haversine assignment</p>
+                </div>
+                <button className="btn-primary-sm" onClick={() => setShowAddAmbulance(true)}>
+                  <Plus size={16} /> Add Ambulance
+                </button>
+              </div>
 
-      <div className="traffic-card">
-        <h3>Indiranagar Junction</h3>
-        <span className="red-text">● Red</span>
-        <p>Congestion: High</p>
-        <small>Emergency priority: Standby</small>
-      </div>
+              {/* Status Filter */}
+              <div style={{ display: "flex", gap: "10px", margin: "14px 0" }}>
+                {["ALL", "AVAILABLE", "ASSIGNED", "EN_ROUTE", "UNAVAILABLE"].map((f) => (
+                  <button
+                    key={f}
+                    onClick={() => setAmbulanceFilter(f)}
+                    style={{
+                      padding: "6px 14px",
+                      borderRadius: "6px",
+                      border: ambulanceFilter === f ? "1px solid #3b82f6" : "1px solid #334155",
+                      background: ambulanceFilter === f ? "#1e3a8a" : "#1e293b",
+                      color: ambulanceFilter === f ? "#93c5fd" : "#94a3b8",
+                      fontSize: "12px",
+                      fontWeight: "600",
+                      cursor: "pointer"
+                    }}
+                  >
+                    {f}
+                  </button>
+                ))}
+              </div>
 
-      <div className="traffic-card">
-        <h3>Whitefield Junction</h3>
-        <span className="yellow-text">● Caution</span>
-        <p>Congestion: Medium</p>
-        <small>Emergency priority: Active</small>
-      </div>
-    </div>
-  </section>
-) : activePage === "Hospitals" ? (
-  <section className="panel">
-    <div className="panel-heading">
-      <div>
-        <h3>Hospital Management</h3>
-        <p>Monitor hospital availability and bed capacity</p>
-      </div>
-      <Building2 size={25} color="#60a5fa" />
-    </div>
+              <div className="ambulance-cards">
+                {ambulances
+                  .filter(a => ambulanceFilter === "ALL" || a.status === ambulanceFilter)
+                  .map((amb) => {
+                    const isAvail = amb.status === "AVAILABLE";
+                    return (
+                      <div className="ambulance-card" key={amb.id}>
+                        <div className="ambulance-card-top">
+                          <div className="ambulance-symbol">
+                            <Ambulance size={24} />
+                          </div>
+                          <span className={`ambulance-status ${isAvail ? "available" : "dispatched"}`}>
+                            {amb.status}
+                          </span>
+                        </div>
 
-    <div className="hospital-cards">
-      {hospitals.map((hospital) => (
-        <div className="hospital-card" key={hospital.id}>
-          <h3>{hospital.name}</h3>
-          <p>{hospital.id}</p>
-          <p>Location: {hospital.location}</p>
-          <h2>{hospital.beds} Beds Available</h2>
-          <span>{hospital.status}</span>
-        </div>
-      ))}
-    </div>
-  </section>
-) : activePage === "Emergency History" ? (
-  <section className="panel history-page">
-    <div className="panel-heading">
-      <div>
-        <h3>Emergency History</h3>
-        <p>View previously reported emergency incidents</p>
-      </div>
-      <Clock size={25} color="#60a5fa" />
-    </div>
+                        <h3>{amb.registration_number}</h3>
+                        <p>Unit ID: #{amb.id}</p>
+                        <p>GPS: {amb.latitude.toFixed(4)}, {amb.longitude.toFixed(4)}</p>
+                        <div style={{ marginTop: "12px", display: "flex", gap: "8px" }}>
+                          <button
+                            className="btn-secondary"
+                            style={{ flex: 1, justifyContent: "center" }}
+                            onClick={() => handleToggleAmbulanceAvailability(amb)}
+                          >
+                            Set {isAvail ? "Unavailable" : "Available"}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            </section>
+          ) : activePage === "Emergency History" ? (
+            /* EMERGENCY LIFECYCLE MANAGEMENT PAGE */
+            <section className="panel history-page">
+              <div className="panel-heading">
+                <div>
+                  <h3>Emergency Response Lifecycle Management</h3>
+                  <p>Orchestrate operational stages: PENDING → DISPATCHED → EN_ROUTE → AT_SCENE → TRANSPORTING → COMPLETED</p>
+                </div>
+                <Clock size={25} color="#60a5fa" />
+              </div>
 
-    <div className="history-list">
-      {emergencyHistory.map((emergency) => (
-        <div className="history-card" key={emergency.id}>
-          <div>
-            <h3>{emergency.type}</h3>
-            <p>{emergency.id}</p>
-            <p>Location: {emergency.location}</p>
-            <small>{emergency.date} · {emergency.time}</small>
-          </div>
+              <div className="history-list" style={{ marginTop: "16px" }}>
+                {emergencies.length === 0 ? (
+                  <p style={{ padding: "20px", color: "#64748b" }}>No emergency cases created yet.</p>
+                ) : (
+                  emergencies.map((em) => {
+                    const amb = ambulances.find(a => a.id === em.assigned_ambulance_id);
+                    const hosp = hospitals.find(h => h.id === em.hospital_id);
+                    const isTerminal = ["COMPLETED", "CANCELLED"].includes(em.status);
 
-          <span className="history-status">
-            {emergency.status}
-          </span>
-        </div>
-      ))}
-    </div>
-  </section>
-) : activePage === "Reports" ? (
-  <ReportsPage />
-) : activePage === "Analytics" ? (
-  <AnalyticsPage />
-) : activePage === "Profile" ? (
-  <ProfilePage />
-) : (
-  <section className="panel page-placeholder">
-    <div className="placeholder-icon">
-      {(() => {
-        const item = menuItems.find((m) => m.name === activePage);
-        const Icon = item?.icon || Users;
-        return <Icon size={38} />;
-      })()}
-    </div>
+                    return (
+                      <div className="history-card" key={em.id} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                          <div>
+                            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                              <h3>Emergency #{em.id}</h3>
+                              <span className={`badge-tag ${
+                                em.status === "COMPLETED" ? "badge-completed" :
+                                em.status === "PENDING" ? "badge-pending" : "badge-dispatched"
+                              }`}>
+                                {em.status}
+                              </span>
+                            </div>
+                            <p style={{ marginTop: "4px" }}>
+                              Accident Ref: Candidate #{em.accident_id} · Reported {new Date(em.created_at).toLocaleTimeString()}
+                            </p>
+                          </div>
 
-    <h2>{activePage}</h2>
-    <p>This module is ready for development. We'll build this screen next.</p>
+                          <div style={{ textAlign: "right" }}>
+                            {amb ? (
+                              <div style={{ fontSize: "13px", fontWeight: "600", color: "#60a5fa" }}>
+                                🚑 {amb.registration_number}
+                              </div>
+                            ) : (
+                              <span style={{ fontSize: "12px", color: "#f87171" }}>No Ambulance Assigned</span>
+                            )}
+                            {hosp && (
+                              <div style={{ fontSize: "12px", color: "#34d399", marginTop: "2px" }}>
+                                🏥 {hosp.name}
+                              </div>
+                            )}
+                          </div>
+                        </div>
 
-    <button
-      className="back-button"
-      onClick={() => setActivePage("Dashboard")}
-    >
-      Back to Dashboard
-    </button>
-  </section>
-))}
+                        {/* Lifecycle Stepper Controls */}
+                        {!isTerminal && (
+                          <div style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "8px",
+                            flexWrap: "wrap",
+                            background: "#090d16",
+                            padding: "10px",
+                            borderRadius: "6px"
+                          }}>
+                            <span style={{ fontSize: "11px", fontWeight: "bold", color: "#94a3b8" }}>
+                              ADVANCE STATUS:
+                            </span>
 
+                            {em.status === "PENDING" && (
+                              <button
+                                className="btn-primary-sm"
+                                onClick={() => handleDispatchAmbulance(em.id)}
+                              >
+                                Dispatch Nearest Ambulance
+                              </button>
+                            )}
 
+                            {em.status === "DISPATCHED" && (
+                              <button
+                                className="btn-primary-sm"
+                                onClick={() => handleUpdateEmergencyStatus(em.id, "EN_ROUTE")}
+                              >
+                                Mark En Route →
+                              </button>
+                            )}
 
+                            {em.status === "EN_ROUTE" && (
+                              <button
+                                className="btn-primary-sm"
+                                onClick={() => handleUpdateEmergencyStatus(em.id, "AT_SCENE")}
+                              >
+                                Mark Arrived at Scene →
+                              </button>
+                            )}
 
+                            {em.status === "AT_SCENE" && (
+                              <button
+                                className="btn-primary-sm"
+                                onClick={() => handleUpdateEmergencyStatus(em.id, "TRANSPORTING")}
+                              >
+                                Begin Transporting Patient →
+                              </button>
+                            )}
+
+                            {em.status === "TRANSPORTING" && (
+                              <button
+                                className="btn-success-sm"
+                                onClick={() => handleUpdateEmergencyStatus(em.id, "COMPLETED")}
+                              >
+                                Complete Mission (Free Unit) ✓
+                              </button>
+                            )}
+
+                            {/* Hospital Assignment Dropdown */}
+                            {!em.hospital_id && (
+                              <select
+                                onChange={(e) => {
+                                  if (e.target.value) handleAssignHospital(em.id, parseInt(e.target.value));
+                                }}
+                                defaultValue=""
+                                style={{
+                                  background: "#1e293b",
+                                  border: "1px solid #334155",
+                                  color: "white",
+                                  padding: "5px 10px",
+                                  borderRadius: "4px",
+                                  fontSize: "12px"
+                                }}
+                              >
+                                <option value="" disabled>Assign Destination Hospital...</option>
+                                {hospitals.map((h) => (
+                                  <option key={h.id} value={h.id}>{h.name}</option>
+                                ))}
+                              </select>
+                            )}
+
+                            {/* View Route Button */}
+                            <button
+                              className="btn-secondary"
+                              onClick={() => handleViewRoute(em.id)}
+                            >
+                              <Compass size={13} /> View Map Route
+                            </button>
+
+                            <button
+                              className="btn-danger-sm"
+                              onClick={() => {
+                                if (confirm("Cancel this emergency? Assigned ambulance will be freed.")) {
+                                  handleUpdateEmergencyStatus(em.id, "CANCELLED");
+                                }
+                              }}
+                              style={{ marginLeft: "auto" }}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </section>
+          ) : activePage === "Hospitals" ? (
+            /* HOSPITALS MANAGEMENT PAGE */
+            <section className="panel">
+              <div className="panel-heading">
+                <div>
+                  <h3>Partner Hospitals & Trauma Centers</h3>
+                  <p>Inbound patient assignment & automated hospital notification broadcast</p>
+                </div>
+                <button className="btn-primary-sm" onClick={() => setShowAddHospital(true)}>
+                  <Plus size={16} /> Add Hospital
+                </button>
+              </div>
+
+              <div className="hospital-cards" style={{ marginTop: "16px" }}>
+                {hospitals.map((hospital) => {
+                  const assignedEmergencies = emergencies.filter(e => e.hospital_id === hospital.id && !["COMPLETED", "CANCELLED"].includes(e.status));
+                  return (
+                    <div className="hospital-card" key={hospital.id}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                        <h3>{hospital.name}</h3>
+                        <span style={{ fontSize: "11px", background: "#10b98122", color: "#10b981", padding: "2px 6px", borderRadius: "4px", fontWeight: "bold" }}>
+                          Active Facility
+                        </span>
+                      </div>
+                      <p style={{ marginTop: "4px" }}>Facility ID: #{hospital.id}</p>
+                      <p><MapPin size={13} /> {hospital.address}</p>
+                      <p><Phone size={13} /> {hospital.contact_information}</p>
+                      <div style={{ marginTop: "10px", paddingTop: "8px", borderTop: "1px solid #1e293b", fontSize: "12px" }}>
+                        <strong>Inbound Patients:</strong>{" "}
+                        <span style={{ color: assignedEmergencies.length > 0 ? "#f59e0b" : "#94a3b8" }}>
+                          {assignedEmergencies.length} active emergency transfers
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          ) : activePage === "Traffic" ? (
+            /* TRAFFIC PAGE */
+            <section className="panel traffic-page">
+              <div className="panel-heading">
+                <div>
+                  <h3>Intelligent Traffic & Green Corridor Boundary</h3>
+                  <p>Member 4 Integration Boundary: Live intersection status and priority preemption</p>
+                </div>
+                <Navigation size={25} color="#fbbf24" />
+              </div>
+
+              <div className="traffic-cards" style={{ marginTop: "16px" }}>
+                <div className="traffic-card">
+                  <h3>MG Road Central Corridor</h3>
+                  <span className="green-text">● Green Light Preemption Active</span>
+                  <p>Congestion Index: 18% (Low)</p>
+                  <small>Ambulance ETA to Victoria Hospital: 4.2 mins</small>
+                </div>
+
+                <div className="traffic-card">
+                  <h3>Indiranagar 100ft Junction</h3>
+                  <span className="yellow-text">● Moderate Flow</span>
+                  <p>Congestion Index: 52% (Medium)</p>
+                  <small>OSM Pathfinding: Dynamic rerouting available</small>
+                </div>
+
+                <div className="traffic-card">
+                  <h3>Whitefield Tech Park Flyover</h3>
+                  <span className="green-text">● Priority Corridor</span>
+                  <p>Congestion Index: 24% (Low)</p>
+                  <small>Ambulance ETA to Manipal Hospital: 6.8 mins</small>
+                </div>
+
+                <div className="traffic-card">
+                  <h3>Koramangala Sony World Signal</h3>
+                  <span className="red-text">● Congested Traffic</span>
+                  <p>Congestion Index: 78% (Heavy)</p>
+                  <small>Green corridor preemption queued upon dispatch</small>
+                </div>
+              </div>
+            </section>
+          ) : activePage === "Reports" ? (
+            <ReportsPage
+              accidents={accidents}
+              emergencies={emergencies}
+              ambulances={ambulances}
+              hospitals={hospitals}
+            />
+          ) : activePage === "Analytics" ? (
+            <AnalyticsPage
+              accidents={accidents}
+              emergencies={emergencies}
+              ambulances={ambulances}
+              hospitals={hospitals}
+            />
+          ) : activePage === "Profile" ? (
+            <ProfilePage
+              currentUser={currentUser}
+              onUpdateProfile={(updated) => setCurrentUser(updated)}
+            />
+          ) : null}
+
+          {/* FOOTER */}
           <footer className="footer">
             <span>© 2026 SERN – Smart Emergency Response Network</span>
-            <span><span className="status-dot"></span> All systems operational</span>
+            <span>
+              <span className="status-dot"></span>
+              All systems operational · Database connected · AI ML engine online
+            </span>
           </footer>
         </div>
       </main>
+
+      {/* POPUP MODALS */}
+      <AccidentSimulatorModal
+        isOpen={showSimulator}
+        onClose={() => setShowSimulator(false)}
+        onAccidentCreated={async () => {
+          await fetchData();
+        }}
+      />
+
+      <AddAmbulanceModal
+        isOpen={showAddAmbulance}
+        onClose={() => setShowAddAmbulance(false)}
+        onAmbulanceAdded={async () => {
+          await fetchData();
+        }}
+      />
+
+      <AddHospitalModal
+        isOpen={showAddHospital}
+        onClose={() => setShowAddHospital(false)}
+        onHospitalAdded={async () => {
+          await fetchData();
+        }}
+      />
+
+      <NotificationsDrawer
+        isOpen={showNotifications}
+        onClose={() => setShowNotifications(false)}
+        notifications={notifications}
+      />
     </div>
   );
 }

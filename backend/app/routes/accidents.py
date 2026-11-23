@@ -15,6 +15,7 @@ from app.services.accident_service import (
     AccidentValidationError,
 )
 from app.services.ml_service import ml_service, MLServiceError
+from app.services.websocket_manager import ws_manager
 
 router = APIRouter(prefix="/accidents", tags=["Accidents"])
 
@@ -51,7 +52,9 @@ def register_accident(
     """
     try:
         accident = AccidentService.register_accident(db=db, accident_in=payload, ml_svc=ml_service)
-        return _to_accident_response(accident)
+        resp = _to_accident_response(accident)
+        ws_manager.broadcast_sync("ACCIDENT_REGISTERED", resp.model_dump())
+        return resp
     except MLServiceError as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -110,9 +113,15 @@ def validate_accident(
             accident_id=accident_id,
             val_req=payload
         )
+        acc_resp = _to_accident_response(accident)
+        em_resp = EmergencyResponse.model_validate(emergency) if emergency else None
+        ws_manager.broadcast_sync("ACCIDENT_VALIDATED", {
+            "accident": acc_resp.model_dump(),
+            "emergency": em_resp.model_dump() if em_resp else None
+        })
         return {
-            "accident": _to_accident_response(accident),
-            "emergency": EmergencyResponse.model_validate(emergency) if emergency else None,
+            "accident": acc_resp,
+            "emergency": em_resp,
             "message": "Accident validated and emergency created." if payload.confirmed else "Accident marked as rejected / false alarm."
         }
     except AccidentNotFoundError as exc:

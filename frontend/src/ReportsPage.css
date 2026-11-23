@@ -53,6 +53,47 @@
   color: #94a3b8;
 }
 
+/* Light Theme Support */
+.light-theme .reports-page {
+  color: #0f172a;
+}
+
+.light-theme .reports-header h2 {
+  color: #0f172a;
+}
+
+.light-theme .reports-header p {
+  color: #64748b;
+}
+
+.light-theme .report-stat-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.light-theme .report-stat-card h3 {
+  color: #64748b;
+}
+
+.light-theme .report-stat-card h2 {
+  color: #2563eb;
+}
+
+.light-theme .report-stat-card p {
+  color: #64748b;
+}
+
+.light-theme table tr th {
+  color: #64748b !important;
+  border-bottom: 1px solid #e2e8f0 !important;
+}
+
+.light-theme table tr td {
+  color: #0f172a !important;
+  border-bottom: 1px solid #e2e8f0 !important;
+}
+
 @media (max-width: 900px) {
   .reports-stats {
     grid-template-columns: repeat(2, 1fr);

@@ -1,0 +1,81 @@
+services:
+  # 1. PostgreSQL 16 with PostGIS Spatial Extension
+  sern-db:
+    image: postgis/postgis:16-3.4-alpine
+    container_name: sern-postgis
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-sern_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d sern_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - sern-network
+
+  # 2. Redis Cache & Event Broker
+  sern-redis:
+    image: redis:7-alpine
+    container_name: sern-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - sern-network
+
+  # 3. SERN FastAPI Backend & Real-Time Engine
+  sern-backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: sern-backend
+    restart: unless-stopped
+    environment:
+      APP_ENV: production
+      DEBUG: "false"
+      DB_ENGINE: postgresql
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_HOST: sern-db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-sern_db}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_FROM_NUMBER: ${TWILIO_FROM_NUMBER:-}
+      FCM_SERVER_KEY: ${FCM_SERVER_KEY:-}
+    ports:
+      - "8000:8000"
+    depends_on:
+      sern-db:
+        condition: service_healthy
+    networks:
+      - sern-network
+
+  # 4. SERN React 19 Frontend Dashboard & Nginx Proxy
+  sern-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: sern-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - sern-backend
+    networks:
+      - sern-network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  sern-network:
+    driver: bridge

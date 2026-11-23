@@ -53,6 +53,65 @@
   color: #94a3b8;
 }
 
+/* Light Theme Support */
+.light-theme .analytics-page {
+  color: #0f172a;
+}
+
+.light-theme .analytics-header h2 {
+  color: #0f172a;
+}
+
+.light-theme .analytics-header p {
+  color: #64748b;
+}
+
+.light-theme .analytics-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.light-theme .analytics-card h3 {
+  color: #64748b;
+}
+
+.light-theme .analytics-card p {
+  color: #64748b;
+}
+
+.light-theme .analytics-page .panel {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+}
+
+.light-theme .analytics-page .panel h3 {
+  color: #0f172a;
+}
+
+.light-theme .analytics-page .panel p {
+  color: #64748b;
+}
+
+.light-theme .analytics-page .panel > div > div > div:first-child span {
+  color: #475569;
+}
+
+.light-theme .analytics-page .panel > div > div > div:first-child strong {
+  color: #0f172a;
+}
+
+.light-theme .analytics-page .panel div[style*="background: rgb(15, 23, 42)"],
+.light-theme .analytics-page .panel div[style*="background: #0f172a"] {
+  background: #f8fafc !important;
+  border: 1px solid #e2e8f0 !important;
+}
+
+.light-theme .analytics-page .panel div[style*="background: #0f172a"] span,
+.light-theme .analytics-page .panel div[style*="background: rgb(15, 23, 42)"] span {
+  color: #334155 !important;
+}
+
 @media (max-width: 900px) {
   .analytics-stats {
     grid-template-columns: repeat(2, 1fr);

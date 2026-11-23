@@ -52,6 +52,16 @@ class AmbulanceLocationUpdate(BaseModel):
     longitude: float = Field(..., ge=-180.0, le=180.0, description="Updated longitude")
 
 
+class AmbulanceTelemetry(BaseModel):
+    latitude: float = Field(..., ge=-90.0, le=90.0, description="Live GPS latitude")
+    longitude: float = Field(..., ge=-180.0, le=180.0, description="Live GPS longitude")
+    speed_kmh: Optional[float] = Field(45.0, ge=0.0, description="Current vehicle velocity in km/h")
+    heading_deg: Optional[float] = Field(0.0, ge=0.0, le=360.0, description="Bearing angle in degrees")
+    distance_remaining_km: Optional[float] = Field(None, ge=0.0, description="Distance remaining to target")
+    eta_seconds: Optional[int] = Field(None, ge=0, description="Estimated time of arrival in seconds")
+    status: Optional[str] = Field(None, description="Optional status transition e.g. EN_ROUTE, AT_SCENE")
+
+
 class AmbulanceAvailabilityUpdate(BaseModel):
     status: str = Field(..., description="AVAILABLE or UNAVAILABLE")
 
