@@ -5,6 +5,19 @@ import { formatAiConfidence } from "../utils/confidence";
 
 const PRESETS = [
   {
+    id: "rnsit_crash",
+    title: "RNSIT Campus Collision (RR Nagar Corridor)",
+    desc: "Speed drops from 80 to 0 km/h on Dr. Vishnuvardhan Rd with high G-force. Demonstrates Congestion-Aware Green Corridor vs 80ft Rd delay.",
+    locationName: "RNSIT Campus, RR Nagar, Bengaluru",
+    lat: 12.9015,
+    lon: 77.5192,
+    vehicleSize: "car",
+    speed: [80.0, 0.0],
+    gsensor: [[48.0, 38.0, 82.0], [60.0, 48.0, 89.0]],
+    gyro: [[6.2, 7.1, 8.4], [9.1, 10.2, 11.5]],
+    gyro_is_hd: true
+  },
+  {
     id: "severe_crash",
     title: "Severe High-Speed Collision",
     desc: "Speed drops from 95 to 0 km/h with heavy G-force impact and rotational spike.",

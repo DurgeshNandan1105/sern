@@ -12,6 +12,7 @@ from app.utils.datetime_utils import utc_now
 logger = logging.getLogger("sern.seed")
 
 DEFAULT_AMBULANCES = [
+    {"registration_number": "KA-05-EM-7720", "latitude": 12.8990, "longitude": 77.5210, "status": "AVAILABLE"},
     {"registration_number": "KA-01-EM-1080", "latitude": 12.9750, "longitude": 77.6050, "status": "AVAILABLE"},
     {"registration_number": "KA-03-EM-2045", "latitude": 12.9780, "longitude": 77.6400, "status": "AVAILABLE"},
     {"registration_number": "KA-04-EM-3012", "latitude": 12.9698, "longitude": 77.7499, "status": "AVAILABLE"},
@@ -21,6 +22,14 @@ DEFAULT_AMBULANCES = [
 ]
 
 DEFAULT_HOSPITALS = [
+    {
+        "name": "SPARSH Hospital RR Nagar",
+        "address": "Ideal Homes Township, Rajarajeshwari Nagar, Bengaluru, Karnataka 560098",
+        "latitude": 12.9355,
+        "longitude": 77.5175,
+        "contact_information": "+91-80-61222000",
+        "is_active": True,
+    },
     {
         "name": "Victoria Hospital & Trauma Care",
         "address": "Fort Road, near City Market, Bengaluru, Karnataka 560002",

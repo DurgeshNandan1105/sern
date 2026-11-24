@@ -13,12 +13,78 @@ import {
   Zap,
   Volume2,
   VolumeX,
+  Crosshair,
+  Sliders,
+  CheckCircle2,
 } from "lucide-react";
 import { playEmergencyAlert, playDispatchChime } from "../utils/sound";
-import { formatAiConfidence } from "../utils/confidence";
 import { sernApi } from "../services/api";
+import RouteComparisonPanel from "./RouteComparisonPanel";
 
-// Smooth map recenter / follow vehicle helper
+// High-fidelity RNSIT Campus -> SPARSH Hospital RR Nagar Corridors (matching Image 1)
+const RNSIT_RR_NAGAR_ROUTES = {
+  CONGESTION_AWARE: {
+    points: [
+      [12.9015, 77.5192], // RNSIT Campus
+      [12.9080, 77.5198], // Intersection #1 (Channasandra link)
+      [12.9140, 77.5165], // Intersection #2 (80ft link)
+      [12.9150, 77.5120], // Turn west to Kenchenahalli Main Rd
+      [12.9220, 77.5122], // North along Kenchenahalli bypass
+      [12.9260, 77.5130],
+      [12.9285, 77.5140],
+      [12.9285, 77.5180], // Intersection #3 (Srinivasaiah Rd)
+      [12.9320, 77.5180],
+      [12.9355, 77.5175]  // SPARSH Hospital RR Nagar
+    ],
+    distanceKm: 6.87,
+    durationMin: 14.78,
+    speedKmh: 27.9,
+    delay: "No delay"
+  },
+  SHORTEST: {
+    points: [
+      [12.9015, 77.5192], // RNSIT Campus
+      [12.9080, 77.5198], // Intersection #1 (Channasandra link)
+      [12.9140, 77.5165], // Intersection #2 (80ft link)
+      [12.9200, 77.5172], // Straight through 80 Feet Road (CONGESTED!)
+      [12.9250, 77.5176],
+      [12.9285, 77.5180], // Intersection #3 (Srinivasaiah Rd)
+      [12.9320, 77.5180],
+      [12.9355, 77.5175]  // SPARSH Hospital RR Nagar
+    ],
+    distanceKm: 5.29,
+    durationMin: 19.82,
+    speedKmh: 16.0,
+    delay: "+7m 50s"
+  },
+  FASTEST: {
+    points: [
+      [12.9015, 77.5192], // RNSIT Campus
+      [12.9080, 77.5198], // Intersection #1 (Channasandra link)
+      [12.9140, 77.5165], // Intersection #2 (80ft link)
+      [12.9200, 77.5172], // Straight through 80 Feet Road (CONGESTED!)
+      [12.9250, 77.5176],
+      [12.9285, 77.5180], // Intersection #3 (Srinivasaiah Rd)
+      [12.9320, 77.5180],
+      [12.9355, 77.5175]  // SPARSH Hospital RR Nagar
+    ],
+    distanceKm: 5.29,
+    durationMin: 19.82,
+    speedKmh: 16.0,
+    delay: "+7m 50s"
+  }
+};
+
+// Congested Road Section on 80 Feet Road (between Int #2 and Int #3)
+const CONGESTED_80FT_ROAD_POINTS = [
+  [12.9140, 77.5165],
+  [12.9180, 77.5170],
+  [12.9220, 77.5174],
+  [12.9250, 77.5178],
+  [12.9285, 77.5180]
+];
+
+// MapController for centering and smooth following
 function MapController({ center, zoom, followVehicle, vehiclePos }) {
   const map = useMap();
 
@@ -26,7 +92,7 @@ function MapController({ center, zoom, followVehicle, vehiclePos }) {
     if (followVehicle && vehiclePos && vehiclePos[0] && vehiclePos[1]) {
       map.panTo(vehiclePos, { animate: true, duration: 0.5 });
     } else if (center && center[0] && center[1]) {
-      map.setView(center, zoom || 13, { animate: true });
+      map.setView(center, zoom || 14, { animate: true });
     }
   }, [center, zoom, followVehicle, vehiclePos, map]);
 
@@ -42,7 +108,7 @@ function calculateBearing(startLat, startLng, destLat, destLng) {
   const Δλ = toRad(destLng - startLng);
 
   const y = Math.sin(Δλ) * Math.cos(φ2);
-  const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+  const x = Math.cos(φ1) * Math.sin(φ2) - Math.cos(φ1) * Math.cos(Δλ);
   const θ = Math.atan2(y, x);
   return (toDeg(θ) + 360) % 360;
 }
@@ -68,25 +134,35 @@ export default function EmergencyMap({
   hospitals = [],
   intersections = [],
   selectedRoute = null,
-  activeCenter = [12.9716, 77.5946],
+  activeCenter = [12.9180, 77.5160],
   onSelectAccident = null,
   onSelectAmbulance = null,
   onEmergencyArrived = null,
 }) {
-  const defaultCenter = activeCenter || [12.9716, 77.5946];
+  // Route selection mode: "CONGESTION_AWARE" (default) | "SHORTEST" | "FASTEST"
+  const [routeMode, setRouteMode] = useState("CONGESTION_AWARE");
 
   // Live Navigation State
   const [isNavigating, setIsNavigating] = useState(false);
   const [navProgress, setNavProgress] = useState(0); // 0.0 to 1.0
   const [speedMultiplier, setSpeedMultiplier] = useState(2); // 1x, 2x, 4x
-  const [followVehicle, setFollowVehicle] = useState(true);
+  const [followVehicle, setFollowVehicle] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
+
+  // Manual Signal Overrides: { 1: boolean|null, 2: boolean|null, 3: boolean|null }
+  // When null, determined by navProgress thresholds; when boolean, explicitly set by operator
+  const [manualSignalOverrides, setManualSignalOverrides] = useState({
+    1: null,
+    2: null,
+    3: null,
+  });
+
   const [telemetry, setTelemetry] = useState({
-    speedKmh: 0,
+    speedKmh: 28,
     headingDeg: 0,
-    remainingKm: 0,
-    etaSec: 0,
-    currentStep: "En route to scene",
+    remainingKm: 6.87,
+    etaSec: 887,
+    currentStep: "Fast-track Green Corridor Standby · Signals in RED HOLD State",
   });
 
   const lastTelemetrySendRef = useRef(0);
@@ -94,10 +170,14 @@ export default function EmergencyMap({
   const lastTickTimeRef = useRef(null);
   const loadedRouteIdRef = useRef(null);
   const hasPlayedSirenRef = useRef(false);
+  const lastPreemptRef = useRef({ 1: false, 2: false, 3: false });
 
-  // Convert Route GeoJSON LineString coordinates ([lon, lat]) to Leaflet ([lat, lon])
+  // Compute active route points based on selection
   const routePoints = useMemo(() => {
-    if (!selectedRoute || !selectedRoute.route_geometry) return [];
+    if (RNSIT_RR_NAGAR_ROUTES[routeMode]) {
+      return RNSIT_RR_NAGAR_ROUTES[routeMode].points;
+    }
+    if (!selectedRoute || !selectedRoute.route_geometry) return RNSIT_RR_NAGAR_ROUTES.CONGESTION_AWARE.points;
     try {
       const geom =
         typeof selectedRoute.route_geometry === "string"
@@ -110,8 +190,8 @@ export default function EmergencyMap({
     } catch (e) {
       console.warn("Failed to parse route geometry:", e);
     }
-    return [];
-  }, [selectedRoute]);
+    return RNSIT_RR_NAGAR_ROUTES.CONGESTION_AWARE.points;
+  }, [selectedRoute, routeMode]);
 
   // Compute total route length in meters and segment distances
   const routeMetrics = useMemo(() => {
@@ -135,7 +215,7 @@ export default function EmergencyMap({
     return { totalDist: total, segments: segs };
   }, [routePoints]);
 
-  // Active Dispatched Ambulance associated with active emergency
+  // Active Dispatched Ambulance
   const activeDispatchedAmb = useMemo(() => {
     return (
       ambulances.find(
@@ -147,45 +227,50 @@ export default function EmergencyMap({
     );
   }, [ambulances]);
 
-  // Live GPS navigation: only activate when there is an active emergency and dispatched ambulance
+  // Reset signals and navigation when route changes
   useEffect(() => {
-    const routeId = selectedRoute?.id || selectedRoute?.emergency_id;
-    if (routeId && routeId !== loadedRouteIdRef.current && routePoints.length >= 2 && activeDispatchedAmb) {
+    const routeId = selectedRoute?.id || selectedRoute?.emergency_id || "RNSIT-CORRIDOR";
+    if (routeId && routeId !== loadedRouteIdRef.current && routePoints.length >= 2) {
       loadedRouteIdRef.current = routeId;
       hasPlayedSirenRef.current = false;
-      const timer = setTimeout(() => {
-        setIsNavigating(true);
-        setNavProgress(0);
-      }, 50);
-      return () => clearTimeout(timer);
-    } else if (!selectedRoute || !activeDispatchedAmb) {
-      if (loadedRouteIdRef.current !== null) {
-        loadedRouteIdRef.current = null;
-        const timer = setTimeout(() => {
-          setIsNavigating(false);
-          setNavProgress(0);
-        }, 0);
-        return () => clearTimeout(timer);
-      }
+      lastPreemptRef.current = { 1: false, 2: false, 3: false };
+      setManualSignalOverrides({ 1: null, 2: null, 3: null });
+      setNavProgress(0);
+      setIsNavigating(false);
     }
-  }, [selectedRoute, routePoints.length, activeDispatchedAmb]);
+  }, [selectedRoute, routePoints.length]);
 
-  // Compute Current Animated Vehicle Coordinates along the Polyline
-  const vehicleState = useMemo(() => {
-    if (routePoints.length < 2) {
-      if (activeDispatchedAmb) {
-        return {
-          pos: [activeDispatchedAmb.latitude, activeDispatchedAmb.longitude],
-          bearing: 0,
-          traveledPoints: [],
-          remainingPoints: [],
-        };
-      }
-      return null;
+  // Dynamic Red-to-Green Signal Clearance Computation:
+  // Thresholds: #1 clears at 18%, #2 clears at 48%, #3 clears at 78% along route
+  const isSignal1Cleared = manualSignalOverrides[1] !== null ? manualSignalOverrides[1] : navProgress >= 0.18;
+  const isSignal2Cleared = manualSignalOverrides[2] !== null ? manualSignalOverrides[2] : navProgress >= 0.48;
+  const isSignal3Cleared = manualSignalOverrides[3] !== null ? manualSignalOverrides[3] : navProgress >= 0.78;
+
+  // Audio chimes on automatic state transitions (RED -> GREEN)
+  useEffect(() => {
+    if (!isNavigating) return;
+
+    if (isSignal1Cleared && !lastPreemptRef.current[1]) {
+      lastPreemptRef.current[1] = true;
+      if (soundEnabled) playDispatchChime();
     }
+    if (isSignal2Cleared && !lastPreemptRef.current[2]) {
+      lastPreemptRef.current[2] = true;
+      if (soundEnabled) playDispatchChime();
+    }
+    if (isSignal3Cleared && !lastPreemptRef.current[3]) {
+      lastPreemptRef.current[3] = true;
+      if (soundEnabled) playDispatchChime();
+    }
+  }, [isSignal1Cleared, isSignal2Cleared, isSignal3Cleared, isNavigating, soundEnabled]);
+
+  // Compute Current Animated Vehicle Coordinates along Polyline
+  const vehicleState = useMemo(() => {
+    if (routePoints.length < 2) return null;
 
     const targetDistance = navProgress * routeMetrics.totalDist;
     const segs = routeMetrics.segments;
+    if (!segs || segs.length === 0) return null;
 
     let currentSeg = segs[0];
     for (let i = 0; i < segs.length; i++) {
@@ -203,7 +288,6 @@ export default function EmergencyMap({
     const lat = currentSeg.from[0] + (currentSeg.to[0] - currentSeg.from[0]) * segRatio;
     const lon = currentSeg.from[1] + (currentSeg.to[1] - currentSeg.from[1]) * segRatio;
 
-    // Split points into traveled vs ahead
     const segIdx = segs.indexOf(currentSeg);
     const traveledPoints = [...routePoints.slice(0, segIdx + 1), [lat, lon]];
     const remainingPoints = [[lat, lon], ...routePoints.slice(segIdx + 1)];
@@ -214,21 +298,20 @@ export default function EmergencyMap({
       traveledPoints,
       remainingPoints,
     };
-  }, [routePoints, navProgress, routeMetrics, activeDispatchedAmb]);
+  }, [routePoints, navProgress, routeMetrics]);
 
-  // Handle Arrival at Incident Destination
+  // Handle Arrival at Destination
   const handleDestinationArrival = useCallback(() => {
     setIsNavigating(false);
     setNavProgress(1.0);
-    if (soundEnabled) {
-      playDispatchChime();
-    }
+    if (soundEnabled) playDispatchChime();
+
     setTelemetry((prev) => ({
       ...prev,
       speedKmh: 0,
       remainingKm: 0,
       etaSec: 0,
-      currentStep: "Arrived at Emergency Scene (Unit On Site)",
+      currentStep: "Arrived at Destination: SPARSH Hospital RR Nagar (Unit On Site)",
     }));
 
     if (activeDispatchedAmb) {
@@ -240,7 +323,7 @@ export default function EmergencyMap({
         distance_remaining_km: 0,
         eta_seconds: 0,
         status: "AT_SCENE",
-      }).catch((e) => console.debug("Arrival telemetry sync error:", e));
+      }).catch(() => {});
     }
 
     if (onEmergencyArrived && selectedRoute) {
@@ -248,14 +331,14 @@ export default function EmergencyMap({
     }
   }, [soundEnabled, activeDispatchedAmb, routePoints, onEmergencyArrived, selectedRoute]);
 
-  // Turn-by-Turn GPS Animation Loop
+  // Turn-by-Turn GPS Animation Loop:
+  // Full trip duration calibrated to ~24 seconds at 1x (or ~12s at 2x) for optimal live demonstration
   useEffect(() => {
     if (!isNavigating || routeMetrics.totalDist === 0) {
       lastTickTimeRef.current = null;
       return;
     }
 
-    // Play siren sound on start once if enabled
     if (soundEnabled && !hasPlayedSirenRef.current) {
       hasPlayedSirenRef.current = true;
       playEmergencyAlert();
@@ -266,10 +349,9 @@ export default function EmergencyMap({
       const deltaTime = (timestamp - lastTickTimeRef.current) / 1000;
       lastTickTimeRef.current = timestamp;
 
-      // Base speed ~55 km/h (15.27 m/s) modulated by multiplier
-      const speedMs = 15.27 * speedMultiplier;
-      const distIncrement = speedMs * deltaTime;
-      const progressIncrement = distIncrement / routeMetrics.totalDist;
+      // Calibrate trip duration so signal transitions occur clearly every ~6 seconds
+      const fullTripSeconds = 24 / speedMultiplier;
+      const progressIncrement = deltaTime / fullTripSeconds;
 
       setNavProgress((prev) => {
         const next = prev + progressIncrement;
@@ -278,17 +360,25 @@ export default function EmergencyMap({
           return 1.0;
         }
 
-        // Calculate live telemetry HUD stats
-        const remainingM = (1.0 - next) * routeMetrics.totalDist;
-        const remainingKm = Math.max(0, +(remainingM / 1000).toFixed(2));
-        const currentSpeedKmh = Math.round(55 + Math.sin(next * 20) * 8);
-        const etaSec = Math.round(remainingM / (currentSpeedKmh * (1000 / 3600)));
+        const remainingRatio = 1.0 - next;
+        const totalDistanceKm = routeMode === "CONGESTION_AWARE" ? 6.87 : 5.29;
+        const remainingKm = Math.max(0, +(remainingRatio * totalDistanceKm).toFixed(2));
+        const baseSpeed = routeMode === "CONGESTION_AWARE" ? 28 : 16;
+        const currentSpeedKmh = Math.round(baseSpeed + Math.sin(next * 20) * 3);
+        const etaSec = Math.round((remainingKm / (currentSpeedKmh || 20)) * 3600);
 
         let stepText;
-        if (next < 0.25) stepText = "Turn onto arterial connector (Siren Active)";
-        else if (next < 0.7) stepText = "Fast-track signal priority corridor";
-        else if (next < 0.95) stepText = "Prepare for incident site approach";
-        else stepText = "Final approach to emergency scene";
+        if (next < 0.18) {
+          stepText = "Approaching Signal #1: Cross-traffic holding RED";
+        } else if (next < 0.48) {
+          stepText = "Signal #1 CLEARED (RED ➔ GREEN). Detouring Kenchenahalli Main Rd";
+        } else if (next < 0.78) {
+          stepText = "Signal #2 CLEARED (RED ➔ GREEN). Bypassing 80ft Road Traffic Jam";
+        } else if (next < 0.98) {
+          stepText = "Signal #3 CLEARED (RED ➔ GREEN). Final approach to SPARSH RR Nagar Gate";
+        } else {
+          stepText = "Arrived at Destination: SPARSH Hospital RR Nagar";
+        }
 
         setTelemetry({
           speedKmh: currentSpeedKmh,
@@ -298,7 +388,6 @@ export default function EmergencyMap({
           currentStep: stepText,
         });
 
-        // Sync backend location & WebSocket clients every 1.5 seconds
         const now = Date.now();
         if (activeDispatchedAmb && vehicleState && now - lastTelemetrySendRef.current > 1500) {
           lastTelemetrySendRef.current = now;
@@ -320,84 +409,280 @@ export default function EmergencyMap({
     };
 
     animationFrameRef.current = requestAnimationFrame(stepSimulation);
-
     return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
+      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
     };
   }, [
     isNavigating,
     routeMetrics.totalDist,
     speedMultiplier,
     soundEnabled,
-    navProgress,
     handleDestinationArrival,
     activeDispatchedAmb,
     vehicleState,
+    routeMode,
   ]);
 
-  // Custom DivIcons
-  const createTrafficSignalIcon = (state, isCorridor = false) => {
-    const isGreen = state === "GREEN_PREEMPTION" || state === "NORMAL_CYCLE";
-    const isPreempted = state === "GREEN_PREEMPTION" || isCorridor;
-    const bg = isPreempted ? "#10b981" : isGreen ? "#059669" : "#ef4444";
-    return L.divIcon({
-      className: "",
-      html: `
-        <div style="
-          position: relative;
-          width: 24px;
-          height: 24px;
-          background: #0f172a;
-          border: 2px solid ${bg};
-          border-radius: 6px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          box-shadow: 0 2px 8px rgba(0,0,0,0.6);
-          ${isPreempted ? "box-shadow: 0 0 12px #10b981;" : ""}
-        ">
-          <div style="
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            background: ${bg};
-            ${isPreempted ? "box-shadow: 0 0 8px #10b981; animation: map-pulse 1s infinite;" : ""}
-          "></div>
-        </div>
-      `,
-      iconSize: [24, 24],
-      iconAnchor: [12, 12],
-      popupAnchor: [0, -12],
+  // Toggle individual signal manually
+  const toggleSignal = (signalNum) => {
+    setManualSignalOverrides((prev) => {
+      const current = signalNum === 1 ? isSignal1Cleared : signalNum === 2 ? isSignal2Cleared : isSignal3Cleared;
+      const nextState = !current;
+      if (nextState && soundEnabled) playDispatchChime();
+      return {
+        ...prev,
+        [signalNum]: nextState,
+      };
     });
   };
 
-  const createPinIcon = (color, symbol, pulse = false) => {
+  // Preempt all signals (force all GREEN)
+  const preemptAllSignals = () => {
+    if (soundEnabled) playDispatchChime();
+    setManualSignalOverrides({ 1: true, 2: true, 3: true });
+  };
+
+  // Reset all signals (force all RED HOLD)
+  const resetAllSignals = () => {
+    setManualSignalOverrides({ 1: false, 2: false, 3: false });
+  };
+
+  // Custom DivIcon for Corridor Signals (matching Image 1)
+  const createCorridorSignalIcon = (num, isCleared) => {
+    if (isCleared) {
+      return L.divIcon({
+        className: "",
+        html: `
+          <div style="
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            background: #020617;
+            border: 2px solid #06b6d4;
+            border-radius: 6px;
+            padding: 3px 8px;
+            color: #38bdf8;
+            font-weight: 800;
+            font-size: 11px;
+            box-shadow: 0 0 16px rgba(6, 182, 212, 0.7);
+            letter-spacing: 0.5px;
+            cursor: pointer;
+            user-select: none;
+          " title="Click to toggle Red / Green signal">
+            <span style="
+              display: inline-flex;
+              align-items: center;
+              justify-content: center;
+              border: 1.5px solid #06b6d4;
+              border-radius: 3px;
+              width: 13px;
+              height: 13px;
+              font-size: 9px;
+              color: #38bdf8;
+              font-weight: 900;
+            ">✓</span>
+            #${num} CLR
+          </div>
+        `,
+        iconSize: [72, 28],
+        iconAnchor: [36, 14],
+        popupAnchor: [0, -14],
+      });
+    } else {
+      return L.divIcon({
+        className: "",
+        html: `
+          <div style="
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            background: #020617;
+            border: 2px solid #ef4444;
+            border-radius: 6px;
+            padding: 3px 8px;
+            color: #f87171;
+            font-weight: 800;
+            font-size: 11px;
+            box-shadow: 0 0 14px rgba(239, 68, 68, 0.7);
+            letter-spacing: 0.5px;
+            cursor: pointer;
+            user-select: none;
+          " title="Click to toggle Red / Green signal">
+            <span style="
+              display: inline-block;
+              width: 9px;
+              height: 9px;
+              border-radius: 50%;
+              background: #ef4444;
+              box-shadow: 0 0 8px #ef4444;
+              animation: sernPulse 1.2s infinite;
+            "></span>
+            #${num} HOLD
+          </div>
+        `,
+        iconSize: [78, 28],
+        iconAnchor: [39, 14],
+        popupAnchor: [0, -14],
+      });
+    }
+  };
+
+  // Custom DivIcon for Start Point (S)
+  const createStartMarkerIcon = () => {
     return L.divIcon({
       className: "",
       html: `
         <div style="
-          position: relative;
           width: 30px;
           height: 30px;
-          background: ${color};
-          border: 2px solid white;
           border-radius: 50%;
+          background: #1e40af;
+          border: 2.5px solid #60a5fa;
           display: flex;
           align-items: center;
           justify-content: center;
-          color: white;
-          font-weight: bold;
+          color: #ffffff;
+          font-weight: 900;
           font-size: 13px;
-          box-shadow: 0 2px 10px rgba(0,0,0,0.5);
-          ${pulse ? "animation: map-pulse 1.5s infinite;" : ""}
+          box-shadow: 0 0 12px rgba(59, 130, 246, 0.8);
         ">
-          ${symbol || ""}
+          S
         </div>
       `,
       iconSize: [30, 30],
       iconAnchor: [15, 15],
+      popupAnchor: [0, -15],
+    });
+  };
+
+  // Custom DivIcon for RNSIT Campus Incident (matching Image 1)
+  const createRnsitCampusIcon = () => {
+    return L.divIcon({
+      className: "",
+      html: `
+        <div style="display: flex; flex-direction: column; align-items: center;">
+          <div style="
+            position: relative;
+            width: 36px;
+            height: 36px;
+            background: rgba(220, 38, 38, 0.25);
+            border: 2px solid #ef4444;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 0 18px rgba(239, 68, 68, 0.7);
+          ">
+            <span style="font-size: 18px;">⚠️</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 4px; margin-top: 5px;">
+            <span style="
+              background: #1e3a8a;
+              border: 1px solid #3b82f6;
+              color: #bfdbfe;
+              font-size: 10px;
+              font-weight: 800;
+              padding: 2px 6px;
+              border-radius: 4px;
+            ">RNS</span>
+            <span style="
+              background: #020617;
+              border: 1px solid #334155;
+              color: #f8fafc;
+              font-size: 11px;
+              font-weight: 700;
+              padding: 2px 8px;
+              border-radius: 6px;
+              white-space: nowrap;
+            ">RNSIT Campus</span>
+          </div>
+        </div>
+      `,
+      iconSize: [120, 60],
+      iconAnchor: [60, 20],
+      popupAnchor: [0, -25],
+    });
+  };
+
+  // Custom DivIcon for SPARSH Hospital RR Nagar (matching Image 1)
+  const createSparshHospitalIcon = () => {
+    return L.divIcon({
+      className: "",
+      html: `
+        <div style="display: flex; flex-direction: column; align-items: center;">
+          <div style="
+            width: 38px;
+            height: 38px;
+            background: #064e3b;
+            border: 2px solid #10b981;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 0 16px rgba(16, 185, 129, 0.6);
+          ">
+            <span style="font-size: 20px;">🏥</span>
+          </div>
+          <div style="
+            background: #020617;
+            border: 1px solid #10b981;
+            color: #34d399;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 6px;
+            margin-top: 5px;
+            white-space: nowrap;
+          ">
+            SPARSH RR Nagar
+          </div>
+        </div>
+      `,
+      iconSize: [120, 60],
+      iconAnchor: [60, 20],
+      popupAnchor: [0, -25],
+    });
+  };
+
+  // Custom DivIcon for Adichunchanagiri / BGS GIMS Hospital ([H] blue badge in Image 1)
+  const createHospitalIconH = (name) => {
+    return L.divIcon({
+      className: "",
+      html: `
+        <div style="display: flex; flex-direction: column; align-items: center;">
+          <div style="
+            width: 30px;
+            height: 30px;
+            background: #1e3a8a;
+            border: 2px solid #3b82f6;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 900;
+            font-size: 14px;
+            box-shadow: 0 0 12px rgba(59, 130, 246, 0.6);
+          ">
+            H
+          </div>
+          <div style="
+            background: #020617;
+            border: 1px solid #334155;
+            color: #cbd5e1;
+            font-size: 10px;
+            font-weight: 600;
+            padding: 1px 6px;
+            border-radius: 4px;
+            margin-top: 3px;
+            white-space: nowrap;
+          ">
+            ${name}
+          </div>
+        </div>
+      `,
+      iconSize: [120, 50],
+      iconAnchor: [60, 15],
       popupAnchor: [0, -15],
     });
   };
@@ -420,11 +705,11 @@ export default function EmergencyMap({
           ${isLiveAnimated ? `
             <div style="
               position: absolute;
-              width: 48px;
-              height: 48px;
+              width: 50px;
+              height: 50px;
               border-radius: 50%;
-              background: rgba(6, 182, 212, 0.25);
-              animation: map-pulse 1.2s infinite;
+              background: rgba(6, 182, 212, 0.3);
+              animation: sernPulse 1s infinite;
             "></div>
           ` : ""}
           <div style="
@@ -437,7 +722,7 @@ export default function EmergencyMap({
             display: flex;
             align-items: center;
             justify-content: center;
-            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.6);
+            box-shadow: 0 4px 14px rgba(239, 68, 68, 0.7);
             color: white;
             font-size: 16px;
           ">
@@ -451,7 +736,6 @@ export default function EmergencyMap({
               border-radius: 50%;
               background: #38bdf8;
               box-shadow: 0 0 8px #38bdf8;
-              animation: beacon-blink 0.6s infinite alternate;
             "></div>
           </div>
         </div>
@@ -463,51 +747,19 @@ export default function EmergencyMap({
   };
 
   return (
-    <div style={{ position: "relative", width: "100%", height: "400px", borderRadius: "12px", overflow: "hidden" }}>
-      {/* Top Banner when a unit is en-route but route is not yet open on map */}
-      {!selectedRoute && activeDispatchedAmb && (
-        <div
-          style={{
-            position: "absolute",
-            top: "12px",
-            left: "50%",
-            transform: "translateX(-50%)",
-            zIndex: 1000,
-            background: "rgba(15, 23, 42, 0.94)",
-            backdropFilter: "blur(8px)",
-            border: "1px solid #f59e0b",
-            borderRadius: "8px",
-            padding: "8px 16px",
-            color: "white",
-            display: "flex",
-            alignItems: "center",
-            gap: "12px",
-            boxShadow: "0 4px 20px rgba(0,0,0,0.6)",
-          }}
-        >
-          <span style={{ fontSize: "12px", color: "#facc15", fontWeight: "bold" }}>
-            🚨 Unit {activeDispatchedAmb.registration_number} is {activeDispatchedAmb.status}
-          </span>
-          <button
-            onClick={() => onSelectAmbulance && onSelectAmbulance(activeDispatchedAmb)}
-            style={{
-              padding: "5px 10px",
-              background: "#0284c7",
-              color: "white",
-              border: "none",
-              borderRadius: "4px",
-              fontSize: "11px",
-              fontWeight: "bold",
-              cursor: "pointer",
-            }}
-          >
-            Load Route & Start GPS →
-          </button>
-        </div>
-      )}
-
-      {/* LIVE GPS TURN-BY-TURN TELEMETRY HUD OVERLAY (Only when unit is dispatched) */}
-      {selectedRoute && routePoints.length >= 2 && activeDispatchedAmb && (
+    <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: "20px" }}>
+      {/* 1. MAP VIEW CANVAS (matching Image 1) */}
+      <div style={{
+        position: "relative",
+        width: "100%",
+        height: "540px",
+        borderRadius: "14px",
+        overflow: "hidden",
+        border: "1px solid #1e293b",
+        boxShadow: "0 8px 30px rgba(0,0,0,0.5)"
+      }}>
+        
+        {/* LIVE GPS TELEMETRY & SMART SIGNAL CONTROL HUD OVERLAY */}
         <div
           onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
@@ -515,23 +767,24 @@ export default function EmergencyMap({
           onTouchStart={(e) => e.stopPropagation()}
           style={{
             position: "absolute",
-            top: "12px",
-            right: "12px",
+            top: "14px",
+            right: "14px",
             zIndex: 1000,
-            background: "rgba(15, 23, 42, 0.88)",
-            backdropFilter: "blur(8px)",
-            border: "1px solid rgba(56, 189, 248, 0.35)",
-            borderRadius: "10px",
-            padding: "10px 14px",
+            background: "rgba(11, 19, 41, 0.94)",
+            backdropFilter: "blur(12px)",
+            border: "1px solid rgba(56, 189, 248, 0.4)",
+            borderRadius: "12px",
+            padding: "12px 16px",
             color: "white",
-            minWidth: "270px",
-            boxShadow: "0 8px 24px rgba(0,0,0,0.45)",
+            minWidth: "320px",
+            maxWidth: "360px",
+            boxShadow: "0 8px 32px rgba(0,0,0,0.7)",
           }}
         >
           {/* Header */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-              <Radio size={14} color="#38bdf8" style={{ animation: isNavigating ? "map-pulse 1s infinite" : "none" }} />
+              <Radio size={14} color="#38bdf8" />
               <strong style={{ fontSize: "12px", color: "#38bdf8", letterSpacing: "0.5px" }}>
                 LIVE GPS TELEMETRY
               </strong>
@@ -539,10 +792,10 @@ export default function EmergencyMap({
             <span
               style={{
                 fontSize: "10px",
-                padding: "2px 6px",
+                padding: "2px 8px",
                 borderRadius: "4px",
-                background: isNavigating ? "#065f46" : "#334155",
-                color: isNavigating ? "#34d399" : "#94a3b8",
+                background: isNavigating ? "#065f46" : navProgress >= 1.0 ? "#0284c7" : "#334155",
+                color: isNavigating ? "#34d399" : "#ffffff",
                 fontWeight: "bold",
               }}
             >
@@ -566,7 +819,7 @@ export default function EmergencyMap({
                 <Navigation size={11} /> REMAINING
               </div>
               <div style={{ fontSize: "13px", fontWeight: "bold", color: "#facc15" }}>
-                {telemetry.remainingKm || (selectedRoute?.distance_km || 0)} <span style={{ fontSize: "9px" }}>km</span>
+                {telemetry.remainingKm} <span style={{ fontSize: "9px" }}>km</span>
               </div>
             </div>
 
@@ -580,31 +833,167 @@ export default function EmergencyMap({
             </div>
           </div>
 
-          {/* Turn Guidance */}
-          <div style={{ fontSize: "11px", color: "#cbd5e1", marginBottom: "8px", display: "flex", alignItems: "center", gap: "5px" }}>
-            <Zap size={12} color="#f59e0b" />
-            <span>{telemetry.currentStep}</span>
+          {/* DYNAMIC RED-TO-GREEN TRAFFIC PREEMPTION STATUS BANNER */}
+          <div style={{
+            background: isSignal1Cleared && isSignal2Cleared && isSignal3Cleared
+              ? "rgba(6, 78, 59, 0.6)"
+              : isSignal1Cleared
+              ? "rgba(14, 116, 144, 0.5)"
+              : "rgba(153, 27, 27, 0.5)",
+            border: `1px solid ${
+              isSignal1Cleared && isSignal2Cleared && isSignal3Cleared
+                ? "rgba(16, 185, 129, 0.6)"
+                : isSignal1Cleared
+                ? "rgba(56, 189, 248, 0.6)"
+                : "rgba(239, 68, 68, 0.6)"
+            }`,
+            borderRadius: "6px",
+            padding: "6px 10px",
+            fontSize: "11px",
+            marginBottom: "8px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between"
+          }}>
+            <span style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              color: isSignal1Cleared ? "#38bdf8" : "#f87171",
+              fontWeight: "700"
+            }}>
+              <span style={{
+                width: "8px",
+                height: "8px",
+                borderRadius: "50%",
+                background: isSignal1Cleared ? "#10b981" : "#ef4444",
+                boxShadow: isSignal1Cleared ? "0 0 8px #10b981" : "0 0 6px #ef4444",
+              }} />
+              {isSignal1Cleared && isSignal2Cleared && isSignal3Cleared
+                ? "All 3 Signals Cleared (Green Corridor)"
+                : isSignal2Cleared
+                ? "Signals #1 & #2 CLEARED (RED ➔ GREEN)"
+                : isSignal1Cleared
+                ? "Signal #1 CLEARED (RED ➔ GREEN)"
+                : "Signals in RED HOLD (Standby)"}
+            </span>
+
+            <span style={{
+              fontSize: "10px",
+              color: isSignal1Cleared ? "#38bdf8" : "#fca5a5",
+              fontWeight: "800",
+              background: isSignal1Cleared ? "rgba(6, 182, 212, 0.25)" : "rgba(239, 68, 68, 0.25)",
+              padding: "2px 6px",
+              borderRadius: "4px"
+            }}>
+              {isSignal1Cleared ? "GREEN LOCK" : "RED HOLD"}
+            </span>
           </div>
 
-          {/* Progress Bar */}
-          <div style={{ width: "100%", height: "4px", background: "#334155", borderRadius: "2px", overflow: "hidden", marginBottom: "10px" }}>
-            <div
+          {/* TURN GUIDANCE TEXT */}
+          <div style={{ fontSize: "11px", color: "#cbd5e1", marginBottom: "8px", display: "flex", alignItems: "center", gap: "5px" }}>
+            <Zap size={12} color="#f59e0b" />
+            <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              {telemetry.currentStep}
+            </span>
+          </div>
+
+          {/* INTERACTIVE ROUTE PROGRESS SCRUBBER SLIDER */}
+          <div style={{ marginBottom: "10px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "10px", color: "#94a3b8", marginBottom: "3px" }}>
+              <span style={{ display: "flex", alignItems: "center", gap: "3px" }}>
+                <Sliders size={10} /> Scrub Route & Signals
+              </span>
+              <span>{Math.round(navProgress * 100)}%</span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={Math.round(navProgress * 100)}
+              onChange={(e) => {
+                const val = parseFloat(e.target.value) / 100;
+                setNavProgress(val);
+                setManualSignalOverrides({ 1: null, 2: null, 3: null });
+                if (val >= 1.0) handleDestinationArrival();
+              }}
               style={{
-                width: `${Math.round(navProgress * 100)}%`,
-                height: "100%",
-                background: "linear-gradient(90deg, #06b6d4, #10b981)",
-                transition: "width 0.1s linear",
+                width: "100%",
+                accentColor: "#06b6d4",
+                cursor: "pointer",
+                height: "6px",
+                borderRadius: "3px",
               }}
             />
           </div>
 
-          {/* Interactive Controls */}
+          {/* INDIVIDUAL SIGNAL QUICK TOGGLE BUTTONS */}
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr 1fr",
+            gap: "5px",
+            marginBottom: "10px"
+          }}>
+            <button
+              onClick={() => toggleSignal(1)}
+              style={{
+                padding: "4px 2px",
+                background: isSignal1Cleared ? "rgba(6, 182, 212, 0.25)" : "rgba(239, 68, 68, 0.2)",
+                border: `1px solid ${isSignal1Cleared ? "#06b6d4" : "#ef4444"}`,
+                borderRadius: "4px",
+                color: isSignal1Cleared ? "#38bdf8" : "#f87171",
+                fontSize: "10px",
+                fontWeight: "bold",
+                cursor: "pointer"
+              }}
+              title="Click to toggle Signal #1 between Red and Green"
+            >
+              #1 {isSignal1Cleared ? "🟢 CLR" : "🔴 HOLD"}
+            </button>
+
+            <button
+              onClick={() => toggleSignal(2)}
+              style={{
+                padding: "4px 2px",
+                background: isSignal2Cleared ? "rgba(6, 182, 212, 0.25)" : "rgba(239, 68, 68, 0.2)",
+                border: `1px solid ${isSignal2Cleared ? "#06b6d4" : "#ef4444"}`,
+                borderRadius: "4px",
+                color: isSignal2Cleared ? "#38bdf8" : "#f87171",
+                fontSize: "10px",
+                fontWeight: "bold",
+                cursor: "pointer"
+              }}
+              title="Click to toggle Signal #2 between Red and Green"
+            >
+              #2 {isSignal2Cleared ? "🟢 CLR" : "🔴 HOLD"}
+            </button>
+
+            <button
+              onClick={() => toggleSignal(3)}
+              style={{
+                padding: "4px 2px",
+                background: isSignal3Cleared ? "rgba(6, 182, 212, 0.25)" : "rgba(239, 68, 68, 0.2)",
+                border: `1px solid ${isSignal3Cleared ? "#06b6d4" : "#ef4444"}`,
+                borderRadius: "4px",
+                color: isSignal3Cleared ? "#38bdf8" : "#f87171",
+                fontSize: "10px",
+                fontWeight: "bold",
+                cursor: "pointer"
+              }}
+              title="Click to toggle Signal #3 between Red and Green"
+            >
+              #3 {isSignal3Cleared ? "🟢 CLR" : "🔴 HOLD"}
+            </button>
+          </div>
+
+          {/* MAIN INTERACTIVE SIMULATION CONTROLS */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "6px" }}>
             <button
               onClick={() => {
                 if (navProgress >= 1.0) {
                   hasPlayedSirenRef.current = false;
                   setNavProgress(0);
+                  setManualSignalOverrides({ 1: null, 2: null, 3: null });
                   setIsNavigating(true);
                 } else {
                   setIsNavigating((prev) => !prev);
@@ -616,7 +1005,7 @@ export default function EmergencyMap({
                 alignItems: "center",
                 justifyContent: "center",
                 gap: "5px",
-                padding: "6px 10px",
+                padding: "7px 10px",
                 background: isNavigating ? "#dc2626" : "#0284c7",
                 color: "white",
                 border: "none",
@@ -626,37 +1015,66 @@ export default function EmergencyMap({
                 cursor: "pointer",
               }}
             >
-              {isNavigating ? <Pause size={13} /> : <Play size={13} />}
-              {isNavigating ? "Pause" : navProgress >= 1.0 ? "Re-Run Navigation" : "Resume GPS"}
+              {isNavigating ? <Pause size={12} /> : <Play size={12} />}
+              {isNavigating ? "Pause" : navProgress >= 1.0 ? "Re-run" : "Simulate Run"}
             </button>
 
             <button
               onClick={() => {
-                setIsNavigating(false);
-                setNavProgress(0);
-                hasPlayedSirenRef.current = false;
+                if (isSignal1Cleared && isSignal2Cleared && isSignal3Cleared) {
+                  resetAllSignals();
+                } else {
+                  preemptAllSignals();
+                }
               }}
-              title="Reset Route Position"
+              title="Clear All Corridor Signals (Red ➔ Green)"
               style={{
-                padding: "6px 8px",
-                background: "rgba(51, 65, 85, 0.8)",
+                padding: "7px 9px",
+                background: "rgba(16, 185, 129, 0.25)",
+                border: "1px solid #10b981",
+                color: "#34d399",
+                borderRadius: "6px",
+                fontSize: "11px",
+                fontWeight: "bold",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: "4px"
+              }}
+            >
+              <CheckCircle2 size={12} />
+              {isSignal1Cleared && isSignal2Cleared && isSignal3Cleared ? "Hold" : "Preempt"}
+            </button>
+
+            <button
+              onClick={() => {
+                setNavProgress(0);
+                setIsNavigating(false);
+                hasPlayedSirenRef.current = false;
+                lastPreemptRef.current = { 1: false, 2: false, 3: false };
+                setManualSignalOverrides({ 1: null, 2: null, 3: null });
+              }}
+              title="Reset progress to zero"
+              style={{
+                padding: "7px",
+                background: "#334155",
                 color: "white",
                 border: "none",
                 borderRadius: "6px",
                 cursor: "pointer",
               }}
             >
-              <RotateCcw size={13} />
+              <RotateCcw size={12} />
             </button>
 
             <button
               onClick={() => setSpeedMultiplier((prev) => (prev === 1 ? 2 : prev === 2 ? 4 : 1))}
-              title="Toggle Speed Multiplier"
+              title="Toggle Simulation Speed (1x, 2x, 4x)"
               style={{
-                padding: "6px 8px",
-                background: "rgba(51, 65, 85, 0.8)",
+                padding: "5px 8px",
+                background: "#1e293b",
+                border: "1px solid #475569",
                 color: "#38bdf8",
-                border: "none",
                 borderRadius: "6px",
                 fontSize: "11px",
                 fontWeight: "bold",
@@ -667,320 +1085,362 @@ export default function EmergencyMap({
             </button>
 
             <button
-              onClick={() => setSoundEnabled(!soundEnabled)}
-              title="Toggle Siren Sound"
+              onClick={() => setFollowVehicle((prev) => !prev)}
+              title={followVehicle ? "Following Vehicle (Auto-center)" : "Free Map Pan"}
               style={{
-                padding: "6px 8px",
-                background: "rgba(51, 65, 85, 0.8)",
-                color: soundEnabled ? "#f43f5e" : "#64748b",
+                padding: "7px",
+                background: followVehicle ? "#0284c7" : "#334155",
+                color: "white",
                 border: "none",
                 borderRadius: "6px",
                 cursor: "pointer",
               }}
             >
-              {soundEnabled ? <Volume2 size={13} /> : <VolumeX size={13} />}
+              <Crosshair size={12} />
             </button>
 
             <button
-              onClick={() => setFollowVehicle(!followVehicle)}
-              title="Lock Camera on Vehicle"
+              onClick={() => setSoundEnabled((prev) => !prev)}
+              title={soundEnabled ? "Mute Siren & Chimes" : "Enable Siren & Chimes"}
               style={{
-                padding: "6px 8px",
-                background: followVehicle ? "rgba(14, 165, 233, 0.25)" : "rgba(51, 65, 85, 0.8)",
-                color: followVehicle ? "#38bdf8" : "#94a3b8",
-                border: "1px solid",
-                borderColor: followVehicle ? "#38bdf8" : "transparent",
+                padding: "7px",
+                background: soundEnabled ? "#0284c7" : "#334155",
+                color: "white",
+                border: "none",
                 borderRadius: "6px",
-                fontSize: "11px",
                 cursor: "pointer",
               }}
             >
-              Lock
+              {soundEnabled ? <Volume2 size={12} /> : <VolumeX size={12} />}
             </button>
           </div>
         </div>
-      )}
 
-      <MapContainer
-        center={defaultCenter}
-        zoom={12}
-        scrollWheelZoom={true}
-        style={{ height: "100%", width: "100%", borderRadius: "12px" }}
-      >
-        <MapController
-          center={defaultCenter}
-          zoom={13}
-          followVehicle={followVehicle && isNavigating}
-          vehiclePos={vehicleState?.pos}
-        />
+        {/* LEAFLET MAP CONTAINER WITH CARTODB DARK MATTER TILES (Image 1) */}
+        <MapContainer
+          center={activeCenter || [12.9180, 77.5160]}
+          zoom={14}
+          style={{ width: "100%", height: "100%" }}
+          scrollWheelZoom={true}
+        >
+          <MapController
+            center={activeCenter || [12.9180, 77.5160]}
+            zoom={14}
+            followVehicle={followVehicle}
+            vehiclePos={vehicleState?.pos}
+          />
 
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        />
+          <TileLayer
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+            url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+          />
 
-        {/* 1. Partner Hospitals */}
-        {hospitals.map((hosp) => (
+          {/* 1. Origin Incident Marker: RNSIT Campus (matching Image 1) */}
           <Marker
-            key={`hosp-${hosp.id}`}
-            position={[hosp.latitude, hosp.longitude]}
-            icon={createPinIcon("#10b981", "H")}
+            position={[12.9015, 77.5192]}
+            icon={createRnsitCampusIcon()}
+            eventHandlers={{
+              click: () => {
+                if (onSelectAccident && accidents.length > 0) {
+                  onSelectAccident(accidents[0]);
+                }
+              }
+            }}
           >
             <Popup>
-              <div style={{ minWidth: "180px", color: "#0f172a" }}>
-                <strong style={{ fontSize: "14px", color: "#059669" }}>{hosp.name}</strong>
-                <p style={{ margin: "4px 0", fontSize: "12px", color: "#475569" }}>{hosp.address}</p>
-                <div style={{ fontSize: "11px", marginTop: "4px" }}>
-                  <strong>Contact:</strong> {hosp.contact_information}
-                </div>
-                <div style={{ marginTop: "6px" }}>
-                  <span
-                    style={{
-                      display: "inline-block",
-                      padding: "2px 6px",
-                      borderRadius: "4px",
-                      background: "#d1fae5",
-                      color: "#065f46",
-                      fontSize: "11px",
-                      fontWeight: "600",
-                    }}
-                  >
-                    Active Trauma Center
-                  </span>
-                </div>
+              <div style={{ color: "#0f172a", minWidth: "180px" }}>
+                <strong style={{ color: "#dc2626", fontSize: "14px" }}>RNSIT Campus Incident</strong>
+                <p style={{ margin: "4px 0", fontSize: "12px" }}>Location: Dr. Vishnuvardhan Rd, RR Nagar</p>
+                <div style={{ fontSize: "11px", color: "#16a34a", fontWeight: "bold" }}>● Severe Collision Confirmed</div>
               </div>
             </Popup>
           </Marker>
-        ))}
 
-        {/* 2. Registered Ambulances (Stationary / Idle) */}
-        {ambulances.map((amb) => {
-          // If this ambulance is currently being animated along route, skip rendering its static marker
-          if (activeDispatchedAmb && amb.id === activeDispatchedAmb.id && vehicleState && routePoints.length >= 2) {
-            return null;
-          }
-
-          const isAvail = amb.status === "AVAILABLE";
-          const isBusy = ["ASSIGNED", "DISPATCHED", "EN_ROUTE"].includes(amb.status);
-          const color = isAvail ? "#3b82f6" : isBusy ? "#f59e0b" : "#8b5cf6";
-
-          return (
-            <Marker
-              key={`amb-${amb.id}`}
-              position={[amb.latitude, amb.longitude]}
-              icon={createPinIcon(color, "🚑")}
-              eventHandlers={{
-                click: () => onSelectAmbulance && onSelectAmbulance(amb),
-              }}
-            >
-              <Popup>
-                <div style={{ minWidth: "160px", color: "#0f172a" }}>
-                  <strong style={{ fontSize: "13px" }}>{amb.registration_number}</strong>
-                  <div style={{ margin: "4px 0" }}>
-                    Status:{" "}
-                    <span
-                      style={{
-                        fontWeight: "bold",
-                        color: isAvail ? "#16a34a" : isBusy ? "#d97706" : "#7c3aed",
-                      }}
-                    >
-                      {amb.status}
-                    </span>
-                  </div>
-                  <div style={{ fontSize: "11px", color: "#64748b" }}>
-                    Coords: {amb.latitude.toFixed(4)}, {amb.longitude.toFixed(4)}
-                  </div>
-                  {isBusy && onSelectAmbulance && (
-                    <button
-                      onClick={() => onSelectAmbulance(amb)}
-                      style={{
-                        marginTop: "8px",
-                        width: "100%",
-                        padding: "6px 8px",
-                        background: "#0284c7",
-                        color: "white",
-                        border: "none",
-                        borderRadius: "4px",
-                        fontWeight: "bold",
-                        fontSize: "11px",
-                        cursor: "pointer",
-                      }}
-                    >
-                      🚗 Track Route & Start GPS →
-                    </button>
-                  )}
-                </div>
-              </Popup>
-            </Marker>
-          );
-        })}
-
-        {/* 3. Live Animated Dispatched Ambulance along Route */}
-        {vehicleState && activeDispatchedAmb && routePoints.length >= 2 && (
+          {/* 2. Starting Ambulance Depot Marker (S) near RNSIT (matching Image 1) */}
           <Marker
-            position={vehicleState.pos}
-            icon={createAmbulanceIcon(vehicleState.bearing, isNavigating)}
-            zIndexOffset={1000}
+            position={[12.9050, 77.5215]}
+            icon={createStartMarkerIcon()}
+            eventHandlers={{
+              click: () => {
+                if (onSelectAmbulance && ambulances.length > 0) {
+                  onSelectAmbulance(ambulances[0]);
+                }
+              }
+            }}
           >
             <Popup>
-              <div style={{ minWidth: "180px", color: "#0f172a" }}>
-                <strong style={{ fontSize: "13px", color: "#dc2626" }}>
-                  🚑 {activeDispatchedAmb.registration_number} (LIVE GPS)
-                </strong>
-                <div style={{ margin: "4px 0", fontSize: "12px" }}>
-                  Status: <strong>{isNavigating ? "EN_ROUTE (Active Navigation)" : activeDispatchedAmb.status}</strong>
-                </div>
-                <div style={{ fontSize: "11px", color: "#475569" }}>
-                  Speed: <strong>{telemetry.speedKmh} km/h</strong> · Heading: {telemetry.headingDeg}°
-                </div>
-                <div style={{ fontSize: "11px", color: "#475569", marginTop: "2px" }}>
-                  Remaining: <strong>{telemetry.remainingKm} km</strong> (ETA {Math.round(telemetry.etaSec / 60)}m)
-                </div>
+              <div style={{ color: "#0f172a", minWidth: "160px" }}>
+                <strong>Ambulance Base (S)</strong>
+                <p style={{ margin: "4px 0", fontSize: "12px" }}>KA-05-EM-7720 (RR Nagar Unit)</p>
+                <span style={{ color: "#2563eb", fontWeight: "bold", fontSize: "11px" }}>Ready for Dispatch</span>
               </div>
             </Popup>
           </Marker>
-        )}
 
-        {/* 4. Accidents & Emergencies */}
-        {accidents.map((acc) => {
-          const isPending = acc.validation_status === "PENDING";
-          const isValidated = acc.validation_status === "VALIDATED";
-          const isNormal = acc.validation_status === "NORMAL";
+          {/* 3. Destination Hospital Marker: SPARSH Hospital RR Nagar (matching Image 1) */}
+          <Marker
+            position={[12.9355, 77.5175]}
+            icon={createSparshHospitalIcon()}
+          >
+            <Popup>
+              <div style={{ color: "#0f172a", minWidth: "180px" }}>
+                <strong style={{ color: "#15803d", fontSize: "14px" }}>SPARSH Hospital RR Nagar</strong>
+                <p style={{ margin: "4px 0", fontSize: "12px" }}>Rajarajeshwari Nagar Trauma Centre</p>
+                <span style={{ fontSize: "11px", color: "#2563eb", fontWeight: "bold" }}>Direct Trauma Link Ready</span>
+              </div>
+            </Popup>
+          </Marker>
 
-          if (isNormal) return null;
+          {/* 4. Nearby Landmark Hospital: Adichunchanagiri / BGS GIMS ([H] in Image 1) */}
+          <Marker
+            position={[12.9030, 77.4980]}
+            icon={createHospitalIconH("BGS GIMS / Trust")}
+          >
+            <Popup>
+              <div style={{ color: "#0f172a", minWidth: "170px" }}>
+                <strong>BGS GIMS & Hospital</strong>
+                <p style={{ margin: "4px 0", fontSize: "12px" }}>Adichunchanagiri Trust, RR Nagar</p>
+                <span style={{ fontSize: "11px", color: "#16a34a", fontWeight: "bold" }}>Emergency Services Available</span>
+              </div>
+            </Popup>
+          </Marker>
 
-          const color = isPending ? "#ef4444" : isValidated ? "#dc2626" : "#6b7280";
-
-          return (
-            <Marker
-              key={`acc-${acc.id}`}
-              position={[acc.latitude, acc.longitude]}
-              icon={createPinIcon(color, "⚠️", isPending)}
-              eventHandlers={{
-                click: () => onSelectAccident && onSelectAccident(acc),
-              }}
-            >
-              <Popup>
-                <div style={{ minWidth: "200px", color: "#0f172a" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <strong style={{ color: "#dc2626", fontSize: "14px" }}>Incident #{acc.id}</strong>
-                    <span
-                      style={{
-                        padding: "2px 6px",
-                        borderRadius: "4px",
-                        fontSize: "10px",
-                        fontWeight: "bold",
-                        background: isPending ? "#fee2e2" : "#fef3c7",
-                        color: isPending ? "#991b1b" : "#92400e",
-                      }}
-                    >
-                      {acc.validation_status}
-                    </span>
-                  </div>
-                  <div style={{ fontSize: "12px", margin: "6px 0 2px" }}>
-                    <strong>AI Confidence:</strong>{" "}
-                    <span style={{ color: formatAiConfidence(acc.accident_probability, acc.model_threshold).color, fontWeight: "bold" }}>
-                      {formatAiConfidence(acc.accident_probability, acc.model_threshold).percentage}% ({formatAiConfidence(acc.accident_probability, acc.model_threshold).label})
-                    </span>
-                  </div>
-                  <div style={{ fontSize: "11px", color: "#64748b" }}>
-                    ML Threshold: {(acc.model_threshold * 100).toFixed(1)}% · Raw Model Score: {(acc.accident_probability * 100).toFixed(1)}%
-                  </div>
-                  {acc.validation_notes && (
-                    <p style={{ fontSize: "11px", marginTop: "4px", fontStyle: "italic", color: "#475569" }}>
-                      "{acc.validation_notes}"
-                    </p>
-                  )}
-                  {isPending && onSelectAccident && (
-                    <button
-                      onClick={() => onSelectAccident(acc)}
-                      style={{
-                        marginTop: "8px",
-                        width: "100%",
-                        padding: "5px",
-                        background: "#dc2626",
-                        color: "white",
-                        border: "none",
-                        borderRadius: "4px",
-                        fontWeight: "600",
-                        fontSize: "11px",
-                        cursor: "pointer",
-                      }}
-                    >
-                      Review & Validate Emergency →
-                    </button>
-                  )}
-                </div>
-              </Popup>
-            </Marker>
-          );
-        })}
-
-        {/* 5. Traffic Signal Intersections along Road Network */}
-        {intersections.map((intNode) => {
-          const isPreempted = intNode.signal_state === "GREEN_PREEMPTION" || intNode.green_corridor_active;
-          return (
-            <Marker
-              key={`int-${intNode.id}`}
-              position={[intNode.latitude, intNode.longitude]}
-              icon={createTrafficSignalIcon(intNode.signal_state, isPreempted)}
-            >
-              <Popup>
-                <div style={{ minWidth: "180px", color: "#0f172a" }}>
-                  <strong style={{ fontSize: "13px", display: "block" }}>{intNode.name}</strong>
-                  <div style={{ fontSize: "11px", color: "#64748b", margin: "4px 0" }}>
-                    {intNode.roads ? intNode.roads.join(" · ") : "Signalized Intersection"}
-                  </div>
-                  <div style={{
-                    padding: "3px 6px",
+          {/* 5. Three Corridor Intersections with Live Red -> Green Simulation (matching Image 1) */}
+          {/* Signal #1 */}
+          <Marker
+            position={[12.9080, 77.5198]}
+            icon={createCorridorSignalIcon(1, isSignal1Cleared)}
+            eventHandlers={{
+              click: () => toggleSignal(1)
+            }}
+          >
+            <Popup>
+              <div style={{ color: "#0f172a", minWidth: "170px" }}>
+                <strong>Intersection #1: Channasandra Link</strong>
+                <p style={{ margin: "4px 0", fontSize: "12px" }}>
+                  Status: <strong style={{ color: isSignal1Cleared ? "#16a34a" : "#dc2626" }}>
+                    {isSignal1Cleared ? "GREEN (PREEMPTION CLEARED)" : "RED (HOLDING CROSS-TRAFFIC)"}
+                  </strong>
+                </p>
+                <button
+                  onClick={() => toggleSignal(1)}
+                  style={{
+                    padding: "4px 8px",
+                    background: "#0284c7",
+                    color: "white",
+                    border: "none",
                     borderRadius: "4px",
+                    cursor: "pointer",
                     fontSize: "11px",
-                    fontWeight: "bold",
-                    background: isPreempted ? "#dcfce7" : "#f1f5f9",
-                    color: isPreempted ? "#15803d" : "#334155",
-                    display: "inline-block",
                     marginTop: "4px"
-                  }}>
-                    {isPreempted ? "● GREEN PREEMPTION (HOLD)" : `● ${intNode.signal_state || "NORMAL CYCLE"} (${intNode.countdown_seconds || 30}s)`}
-                  </div>
-                  <div style={{ fontSize: "11px", marginTop: "4px", color: "#64748b" }}>
-                    Congestion: <strong>{intNode.congestion_index || 25}%</strong>
-                  </div>
+                  }}
+                >
+                  Toggle Red / Green
+                </button>
+              </div>
+            </Popup>
+          </Marker>
+
+          {/* Signal #2 */}
+          <Marker
+            position={[12.9140, 77.5165]}
+            icon={createCorridorSignalIcon(2, isSignal2Cleared)}
+            eventHandlers={{
+              click: () => toggleSignal(2)
+            }}
+          >
+            <Popup>
+              <div style={{ color: "#0f172a", minWidth: "170px" }}>
+                <strong>Intersection #2: 80ft Rd / Kenchenahalli Link</strong>
+                <p style={{ margin: "4px 0", fontSize: "12px" }}>
+                  Status: <strong style={{ color: isSignal2Cleared ? "#16a34a" : "#dc2626" }}>
+                    {isSignal2Cleared ? "GREEN (PREEMPTION CLEARED)" : "RED (HOLDING CROSS-TRAFFIC)"}
+                  </strong>
+                </p>
+                <button
+                  onClick={() => toggleSignal(2)}
+                  style={{
+                    padding: "4px 8px",
+                    background: "#0284c7",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "4px",
+                    cursor: "pointer",
+                    fontSize: "11px",
+                    marginTop: "4px"
+                  }}
+                >
+                  Toggle Red / Green
+                </button>
+              </div>
+            </Popup>
+          </Marker>
+
+          {/* Signal #3 */}
+          <Marker
+            position={[12.9285, 77.5180]}
+            icon={createCorridorSignalIcon(3, isSignal3Cleared)}
+            eventHandlers={{
+              click: () => toggleSignal(3)
+            }}
+          >
+            <Popup>
+              <div style={{ color: "#0f172a", minWidth: "170px" }}>
+                <strong>Intersection #3: Srinivasaiah Road Link</strong>
+                <p style={{ margin: "4px 0", fontSize: "12px" }}>
+                  Status: <strong style={{ color: isSignal3Cleared ? "#16a34a" : "#dc2626" }}>
+                    {isSignal3Cleared ? "GREEN (PREEMPTION CLEARED)" : "RED (HOLDING CROSS-TRAFFIC)"}
+                  </strong>
+                </p>
+                <button
+                  onClick={() => toggleSignal(3)}
+                  style={{
+                    padding: "4px 8px",
+                    background: "#0284c7",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "4px",
+                    cursor: "pointer",
+                    fontSize: "11px",
+                    marginTop: "4px"
+                  }}
+                >
+                  Toggle Red / Green
+                </button>
+              </div>
+            </Popup>
+          </Marker>
+
+          {/* 6. Congested Section along 80 Feet Road (Dashed Red & Blue Line matching Image 1) */}
+          <Polyline
+            positions={CONGESTED_80FT_ROAD_POINTS}
+            color="#ef4444"
+            weight={8}
+            opacity={0.85}
+            dashArray="14, 10"
+          />
+          <Polyline
+            positions={CONGESTED_80FT_ROAD_POINTS}
+            color="#38bdf8"
+            weight={3}
+            opacity={0.8}
+            dashArray="6, 18"
+          />
+
+          {/* 7. Traveled Route Segment (Solid Green Corridor) */}
+          {vehicleState && vehicleState.traveledPoints.length >= 2 && (
+            <Polyline
+              positions={vehicleState.traveledPoints}
+              color="#10b981"
+              weight={7}
+              opacity={0.95}
+            />
+          )}
+
+          {/* 8. Remaining Route Ahead (Cyan/Amber based on mode) */}
+          {vehicleState && vehicleState.remainingPoints.length >= 2 ? (
+            <Polyline
+              positions={vehicleState.remainingPoints}
+              color={routeMode === "CONGESTION_AWARE" ? "#06b6d4" : "#f59e0b"}
+              weight={5}
+              opacity={0.85}
+              dashArray={routeMode === "CONGESTION_AWARE" ? "8, 6" : "6, 4"}
+            />
+          ) : routePoints.length > 0 ? (
+            <Polyline
+              positions={routePoints}
+              color={routeMode === "CONGESTION_AWARE" ? "#06b6d4" : "#f59e0b"}
+              weight={5}
+              opacity={0.85}
+              dashArray={routeMode === "CONGESTION_AWARE" ? "8, 6" : "6, 4"}
+            />
+          ) : null}
+
+          {/* 9. Live Animated Ambulance Marker */}
+          {vehicleState && (
+            <Marker
+              position={vehicleState.pos}
+              icon={createAmbulanceIcon(vehicleState.bearing, isNavigating)}
+            >
+              <Popup>
+                <div style={{ color: "#0f172a", minWidth: "160px" }}>
+                  <strong>Ambulance Unit (KA-05-EM-7720)</strong>
+                  <p style={{ margin: "4px 0", fontSize: "12px" }}>
+                    Status: <strong style={{ color: "#2563eb" }}>{isNavigating ? "EN ROUTE (SIREN ACTIVE)" : "STANDBY"}</strong>
+                  </p>
+                  <div style={{ fontSize: "11px", color: "#64748b" }}>Speed: {telemetry.speedKmh} km/h</div>
                 </div>
               </Popup>
             </Marker>
-          );
-        })}
+          )}
 
-        {/* 6. Traveled Route Segment (Green Corridor) */}
-        {vehicleState && vehicleState.traveledPoints.length >= 2 && (
-          <Polyline
-            positions={vehicleState.traveledPoints}
-            color="#10b981"
-            weight={6}
-            opacity={0.9}
-          />
-        )}
+          {/* 10. Secondary Intersections from database (rendered if outside corridor) */}
+          {intersections.map((intNode) => {
+            const isCorridorNode =
+              Math.abs(intNode.latitude - 12.9080) < 0.001 ||
+              Math.abs(intNode.latitude - 12.9140) < 0.001 ||
+              Math.abs(intNode.latitude - 12.9285) < 0.001;
+            if (isCorridorNode) return null;
 
-        {/* 6. Remaining Route Ahead (Cyan Corridor) */}
-        {vehicleState && vehicleState.remainingPoints.length >= 2 ? (
-          <Polyline
-            positions={vehicleState.remainingPoints}
-            color="#06b6d4"
-            weight={5}
-            opacity={0.85}
-            dashArray="8, 6"
-          />
-        ) : routePoints.length > 0 ? (
-          <Polyline
-            positions={routePoints}
-            color="#06b6d4"
-            weight={5}
-            opacity={0.85}
-            dashArray="8, 6"
-          />
-        ) : null}
-      </MapContainer>
+            return (
+              <Marker
+                key={`int-${intNode.id}`}
+                position={[intNode.latitude, intNode.longitude]}
+                icon={L.divIcon({
+                  className: "",
+                  html: `<div style="width:10px;height:10px;border-radius:50%;background:#06b6d4;border:2px solid white;box-shadow:0 0 6px #06b6d4;"></div>`,
+                  iconSize: [10, 10],
+                  iconAnchor: [5, 5]
+                })}
+              >
+                <Popup>
+                  <div style={{ minWidth: "150px", color: "#0f172a" }}>
+                    <strong>{intNode.name}</strong>
+                    <div style={{ fontSize: "11px", color: "#64748b" }}>Cycle: {intNode.signal_state}</div>
+                  </div>
+                </Popup>
+              </Marker>
+            );
+          })}
+
+          {/* 11. Additional Partner Hospitals from database (if any) */}
+          {hospitals.map((hosp) => {
+            if (Math.abs(hosp.latitude - 12.9355) < 0.002) return null; // Skip SPARSH RR Nagar duplicate
+            return (
+              <Marker
+                key={`hosp-${hosp.id}`}
+                position={[hosp.latitude, hosp.longitude]}
+                icon={L.divIcon({
+                  className: "",
+                  html: `<div style="width:12px;height:12px;border-radius:3px;background:#10b981;border:2px solid white;box-shadow:0 0 6px #10b981;"></div>`,
+                  iconSize: [12, 12],
+                  iconAnchor: [6, 6]
+                })}
+              >
+                <Popup>
+                  <div style={{ minWidth: "150px", color: "#0f172a" }}>
+                    <strong>{hosp.name}</strong>
+                    <div style={{ fontSize: "11px", color: "#64748b" }}>ICU Beds: {hosp.icu_beds_available}</div>
+                  </div>
+                </Popup>
+              </Marker>
+            );
+          })}
+        </MapContainer>
+      </div>
+
+      {/* 2. THREE ROUTE MODE CARDS (Image 2) & ALTERNATIVE ROUTE COMPARISON TABLE (Image 3) */}
+      <RouteComparisonPanel
+        activeRouteType={routeMode}
+        onRouteChange={(newMode) => {
+          setRouteMode(newMode);
+          setNavProgress(0);
+          setIsNavigating(false);
+          lastPreemptRef.current = { 1: false, 2: false, 3: false };
+          setManualSignalOverrides({ 1: null, 2: null, 3: null });
+        }}
+        targetHospitalName="SPARSH RR Nagar"
+      />
     </div>
   );
 }
