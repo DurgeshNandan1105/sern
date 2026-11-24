@@ -76,15 +76,6 @@ const RNSIT_RR_NAGAR_ROUTES = {
   }
 };
 
-// Congested Road Section on 80 Feet Road (between Int #2 and Int #3)
-const CONGESTED_80FT_ROAD_POINTS = [
-  [12.9140, 77.5165],
-  [12.9180, 77.5170],
-  [12.9220, 77.5174],
-  [12.9250, 77.5178],
-  [12.9285, 77.5180]
-];
-
 // MapController with automatic zoom-to-route and vehicle following
 function MapController({ center, zoom, followVehicle, vehiclePos, routePoints, isCorridorActive, routeKey }) {
   const map = useMap();
@@ -156,9 +147,33 @@ export default function EmergencyMap({
   onEmergencyArrived = null,
   isCitizenRole = false,
   onOpenCitizenReport = null,
+  routeMode: controlledRouteMode = null,
+  onRouteModeChange = null,
+  showComparisonPanel = true,
 }) {
-  // Route selection mode: "CONGESTION_AWARE" (default) | "SHORTEST" | "FASTEST"
-  const [routeMode, setRouteMode] = useState("CONGESTION_AWARE");
+  // Route selection mode: "CONGESTION_AWARE" | "SHORTEST" | "FASTEST"
+  const [localRouteMode, setLocalRouteMode] = useState("CONGESTION_AWARE");
+  const routeMode =
+    controlledRouteMode ||
+    selectedRoute?.selected_strategy ||
+    selectedRoute?.route_geometry?.selected_candidate ||
+    localRouteMode;
+  const setRouteMode = useCallback(
+    (newMode) => {
+      if (onRouteModeChange) {
+        onRouteModeChange(newMode);
+      } else {
+        setLocalRouteMode(newMode);
+      }
+    },
+    [onRouteModeChange]
+  );
+
+  // Extract live candidate routes from backend Dijkstra calculation
+  const routeCandidates = useMemo(() => {
+    return selectedRoute?.candidates || selectedRoute?.route_geometry?.candidates || null;
+  }, [selectedRoute]);
+  const activeCandidate = routeCandidates?.[routeMode] || null;
 
   // Live Navigation State
   const [isNavigating, setIsNavigating] = useState(false);
@@ -188,15 +203,21 @@ export default function EmergencyMap({
   const loadedRouteIdRef = useRef(null);
   const hasPlayedSirenRef = useRef(false);
   const lastPreemptRef = useRef({ 1: false, 2: false, 3: false });
+  const navProgressRef = useRef(0);
+  const vehicleStateRef = useRef(null);
+  const arrivalFiredRef = useRef(false);
+  const arrivedRouteIdsRef = useRef(new Set());
 
-  // 1. Identify Active Dispatched Ambulance or Active Emergency
+  // 1. Identify Active Dispatched Ambulance or Active Emergency (includes AT_SCENE / TRANSPORTING until COMPLETED)
   const activeDispatchedAmb = useMemo(() => {
     return (
       ambulances.find(
         (a) =>
           a.status === "ASSIGNED" ||
           a.status === "DISPATCHED" ||
-          a.status === "EN_ROUTE"
+          a.status === "EN_ROUTE" ||
+          a.status === "AT_SCENE" ||
+          a.status === "TRANSPORTING"
       ) || null
     );
   }, [ambulances]);
@@ -204,7 +225,7 @@ export default function EmergencyMap({
   const activeEmergency = useMemo(() => {
     return (
       emergencies.find(
-        (e) => ["DISPATCHED", "ASSIGNED", "EN_ROUTE"].includes(e.status)
+        (e) => ["DISPATCHED", "ASSIGNED", "EN_ROUTE", "AT_SCENE", "TRANSPORTING"].includes(e.status)
       ) || null
     );
   }, [emergencies]);
@@ -363,6 +384,9 @@ export default function EmergencyMap({
   useEffect(() => {
     if (!isCorridorActive) {
       loadedRouteIdRef.current = null;
+      arrivalFiredRef.current = false;
+      arrivedRouteIdsRef.current.clear();
+      navProgressRef.current = 0;
       const t = setTimeout(() => {
         setIsNavigating(false);
         setNavProgress(0);
@@ -370,11 +394,27 @@ export default function EmergencyMap({
       return () => clearTimeout(t);
     }
 
-    const routeId = selectedRoute?.id || selectedRoute?.emergency_id || "ROUTE-ACTIVE";
+    const routeId = selectedRoute?.emergency_id || selectedRoute?.id || activeEmergency?.id || "ROUTE-ACTIVE";
     if (routeId && routeId !== loadedRouteIdRef.current && routePoints.length >= 2) {
       loadedRouteIdRef.current = routeId;
+      const alreadyArrived =
+        arrivedRouteIdsRef.current.has(routeId) ||
+        ["AT_SCENE", "TRANSPORTING"].includes(activeEmergency?.status);
+
+      if (alreadyArrived) {
+        arrivalFiredRef.current = true;
+        navProgressRef.current = 1.0;
+        const t = setTimeout(() => {
+          setNavProgress(1.0);
+          setIsNavigating(false);
+        }, 0);
+        return () => clearTimeout(t);
+      }
+
+      arrivalFiredRef.current = false;
       hasPlayedSirenRef.current = false;
       lastPreemptRef.current = { 1: false, 2: false, 3: false };
+      navProgressRef.current = 0;
       const t = setTimeout(() => {
         setManualSignalOverrides({ 1: null, 2: null, 3: null });
         setNavProgress(0);
@@ -382,7 +422,7 @@ export default function EmergencyMap({
       }, 100);
       return () => clearTimeout(t);
     }
-  }, [isCorridorActive, selectedRoute, routePoints.length]);
+  }, [isCorridorActive, selectedRoute, routePoints.length, activeEmergency?.id, activeEmergency?.status]);
 
   // Proactive Predictive Green Corridor Traffic Signal Control
   // Signal 1: Intersection at ~0.18. Advance trigger at 0.06 (~20-25s before arrival). Passes at 0.22 (Restores normal cycle).
@@ -467,8 +507,20 @@ export default function EmergencyMap({
     };
   }, [isCorridorActive, routePoints, navProgress, routeMetrics]);
 
+  // Sync refs for smooth requestAnimationFrame reads without tearing down loop
+  useEffect(() => {
+    vehicleStateRef.current = vehicleState;
+  }, [vehicleState]);
+
   // Handle Arrival at Destination
   const handleDestinationArrival = useCallback(() => {
+    if (arrivalFiredRef.current) return;
+    arrivalFiredRef.current = true;
+
+    const routeId = selectedRoute?.emergency_id || selectedRoute?.id || activeEmergency?.id || loadedRouteIdRef.current;
+    if (routeId) arrivedRouteIdsRef.current.add(routeId);
+
+    navProgressRef.current = 1.0;
     setIsNavigating(false);
     setNavProgress(1.0);
     if (soundEnabled) playDispatchChime();
@@ -493,10 +545,11 @@ export default function EmergencyMap({
       }).catch(() => {});
     }
 
-    if (onEmergencyArrived && selectedRoute) {
-      onEmergencyArrived(selectedRoute.emergency_id);
+    const emId = selectedRoute?.emergency_id || activeEmergency?.id;
+    if (onEmergencyArrived && emId) {
+      onEmergencyArrived(emId);
     }
-  }, [soundEnabled, activeDispatchedAmb, routePoints, onEmergencyArrived, selectedRoute]);
+  }, [soundEnabled, activeDispatchedAmb, activeEmergency?.id, routePoints, onEmergencyArrived, selectedRoute]);
 
   // Turn-by-Turn GPS Animation Loop
   useEffect(() => {
@@ -512,83 +565,84 @@ export default function EmergencyMap({
 
     const stepSimulation = (timestamp) => {
       if (!lastTickTimeRef.current) lastTickTimeRef.current = timestamp;
-      const deltaTime = (timestamp - lastTickTimeRef.current) / 1000;
+      const deltaTime = Math.min(0.1, (timestamp - lastTickTimeRef.current) / 1000);
       lastTickTimeRef.current = timestamp;
 
       const fullTripSeconds = 24 / speedMultiplier;
       const progressIncrement = deltaTime / fullTripSeconds;
+      const next = Math.min(1.0, navProgressRef.current + progressIncrement);
+      navProgressRef.current = next;
 
-      setNavProgress((prev) => {
-        const next = prev + progressIncrement;
-        if (next >= 1.0) {
-          handleDestinationArrival();
-          return 1.0;
-        }
+      if (next >= 1.0) {
+        animationFrameRef.current = null;
+        handleDestinationArrival();
+        return;
+      }
 
-        const remainingRatio = 1.0 - next;
-        const totalDistanceKm = +(routeMetrics.totalDist / 1000).toFixed(2) || (routeMode === "CONGESTION_AWARE" ? 6.87 : 5.29);
-        const remainingKm = Math.max(0, +(remainingRatio * totalDistanceKm).toFixed(2));
-        const baseSpeed = routeMode === "CONGESTION_AWARE" ? 28 : 16;
-        const currentSpeedKmh = Math.round(baseSpeed + Math.sin(next * 20) * 3);
-        const etaSec = Math.round((remainingKm / (currentSpeedKmh || 20)) * 3600);
+      setNavProgress(next);
 
-        let stepText;
-        if (next < 0.06) {
-          stepText = "Standby: Route signals holding cross-traffic in RED HOLD state";
-        } else if (next < 0.18) {
-          stepText = "Signal #1 PREEMPTIVE GREEN activated (20s advance queue flush before arrival)";
-        } else if (next < 0.22) {
-          stepText = "Ambulance crossing Intersection #1 with solid green priority";
-        } else if (next < 0.36) {
-          stepText = "Intersection #1 safely crossed · Normal cycle restored · Approaching Link #2";
-        } else if (next < 0.48) {
-          stepText = "Signal #2 PREEMPTIVE GREEN activated (20s advance queue flush before arrival)";
-        } else if (next < 0.52) {
-          stepText = "Ambulance crossing Intersection #2 · Congested sections bypassed";
-        } else if (next < 0.66) {
-          stepText = "Intersection #2 safely crossed · Normal cycle restored · Approaching Hospital Link";
-        } else if (next < 0.78) {
-          stepText = "Signal #3 PREEMPTIVE GREEN activated (20s advance emergency corridor)";
-        } else if (next < 0.82) {
-          stepText = "Ambulance crossing Intersection #3 · Entering emergency bay entrance";
-        } else if (next < 1.0) {
-          stepText = "All signals safely cleared & restored · Final approach to trauma desk";
-        } else {
-          stepText = "Arrived at Destination: Trauma Hospital (Unit On Site)";
-        }
+      const remainingRatio = 1.0 - next;
+      const totalDistanceKm = +(routeMetrics.totalDist / 1000).toFixed(2) || (routeMode === "CONGESTION_AWARE" ? 6.87 : 5.29);
+      const remainingKm = Math.max(0, +(remainingRatio * totalDistanceKm).toFixed(2));
+      const baseSpeed = routeMode === "CONGESTION_AWARE" ? 28 : 16;
+      const currentSpeedKmh = Math.round(baseSpeed + Math.sin(next * 20) * 3);
+      const etaSec = Math.round((remainingKm / (currentSpeedKmh || 20)) * 3600);
 
-        setTelemetry({
-          speedKmh: currentSpeedKmh,
-          headingDeg: Math.round(vehicleState?.bearing || 0),
-          remainingKm,
-          etaSec,
-          currentStep: stepText,
-        });
+      let stepText;
+      if (next < 0.06) {
+        stepText = "Standby: Route signals holding cross-traffic in RED HOLD state";
+      } else if (next < 0.18) {
+        stepText = "Signal #1 PREEMPTIVE GREEN activated (20s advance queue flush before arrival)";
+      } else if (next < 0.22) {
+        stepText = "Ambulance crossing Intersection #1 with solid green priority";
+      } else if (next < 0.36) {
+        stepText = "Intersection #1 safely crossed · Normal cycle restored · Approaching Link #2";
+      } else if (next < 0.48) {
+        stepText = "Signal #2 PREEMPTIVE GREEN activated (20s advance queue flush before arrival)";
+      } else if (next < 0.52) {
+        stepText = "Ambulance crossing Intersection #2 · Congested sections bypassed";
+      } else if (next < 0.66) {
+        stepText = "Intersection #2 safely crossed · Normal cycle restored · Approaching Hospital Link";
+      } else if (next < 0.78) {
+        stepText = "Signal #3 PREEMPTIVE GREEN activated (20s advance emergency corridor)";
+      } else if (next < 0.82) {
+        stepText = "Ambulance crossing Intersection #3 · Entering emergency bay entrance";
+      } else if (next < 1.0) {
+        stepText = "All signals safely cleared & restored · Final approach to trauma desk";
+      } else {
+        stepText = "Arrived at Destination: Trauma Hospital (Unit On Site)";
+      }
 
-        const now = Date.now();
-        if (activeDispatchedAmb && vehicleState && now - lastTelemetrySendRef.current > 1500) {
-          lastTelemetrySendRef.current = now;
-          sernApi.streamAmbulanceTelemetry(activeDispatchedAmb.id, {
-            latitude: vehicleState.pos[0],
-            longitude: vehicleState.pos[1],
-            speed_kmh: currentSpeedKmh,
-            heading_deg: Math.round(vehicleState.bearing),
-            distance_remaining_km: remainingKm,
-            eta_seconds: etaSec,
-            status: "EN_ROUTE",
-          }).catch(() => {});
-
-          if (activeEmergency?.id) {
-            sernApi.evaluatePredictiveSignals(activeEmergency.id, {
-              current_lat: vehicleState.pos[0],
-              current_lon: vehicleState.pos[1],
-              speed_kmh: currentSpeedKmh
-            }).catch(() => {});
-          }
-        }
-
-        return next;
+      const currentVeh = vehicleStateRef.current;
+      setTelemetry({
+        speedKmh: currentSpeedKmh,
+        headingDeg: Math.round(currentVeh?.bearing || 0),
+        remainingKm,
+        etaSec,
+        currentStep: stepText,
       });
+
+      const now = Date.now();
+      if (activeDispatchedAmb && currentVeh && now - lastTelemetrySendRef.current > 1500) {
+        lastTelemetrySendRef.current = now;
+        sernApi.streamAmbulanceTelemetry(activeDispatchedAmb.id, {
+          latitude: currentVeh.pos[0],
+          longitude: currentVeh.pos[1],
+          speed_kmh: currentSpeedKmh,
+          heading_deg: Math.round(currentVeh.bearing),
+          distance_remaining_km: remainingKm,
+          eta_seconds: etaSec,
+          status: "EN_ROUTE",
+        }).catch(() => {});
+
+        if (activeEmergency?.id) {
+          sernApi.evaluatePredictiveSignals(activeEmergency.id, {
+            current_lat: currentVeh.pos[0],
+            current_lon: currentVeh.pos[1],
+            speed_kmh: currentSpeedKmh
+          }).catch(() => {});
+        }
+      }
 
       animationFrameRef.current = requestAnimationFrame(stepSimulation);
     };
@@ -604,7 +658,6 @@ export default function EmergencyMap({
     soundEnabled,
     handleDestinationArrival,
     activeDispatchedAmb,
-    vehicleState,
     routeMode,
     activeEmergency?.id,
   ]);
@@ -1093,7 +1146,7 @@ export default function EmergencyMap({
             }}
           >
             {/* Header */}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                 <Radio size={14} color="#38bdf8" />
                 <strong style={{ fontSize: "12px", color: "#38bdf8", letterSpacing: "0.5px" }}>
@@ -1112,6 +1165,33 @@ export default function EmergencyMap({
               >
                 {isNavigating ? "NAVIGATING" : navProgress >= 1.0 ? "ARRIVED" : "STANDBY"}
               </span>
+            </div>
+
+            {/* Active Dijkstra Strategy & Optimal Route Pill */}
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: "6px",
+              padding: "4px 8px",
+              marginBottom: "8px",
+              borderRadius: "5px",
+              background: "rgba(56, 189, 248, 0.12)",
+              border: "1px solid rgba(56, 189, 248, 0.35)",
+              fontSize: "10px",
+              color: "#7dd3fc",
+              fontWeight: "700"
+            }}>
+              <span>
+                {activeCandidate?.is_optimal
+                  ? `★ OPTIMAL ROUTE SELECTED: ${activeCandidate.strategy_title}`
+                  : `ACTIVE ROUTE: ${activeCandidate?.strategy_title || routeMode}`}
+              </span>
+              {activeCandidate && (
+                <span style={{ color: "#34d399" }}>
+                  {activeCandidate.distance_km} km
+                </span>
+              )}
             </div>
 
             {/* Real-Time Metrics Row */}
@@ -1228,6 +1308,8 @@ export default function EmergencyMap({
                 value={Math.round(navProgress * 100)}
                 onChange={(e) => {
                   const val = parseFloat(e.target.value) / 100;
+                  navProgressRef.current = val;
+                  if (val < 1.0) arrivalFiredRef.current = false;
                   setNavProgress(val);
                   setManualSignalOverrides({ 1: null, 2: null, 3: null });
                   if (val >= 1.0) handleDestinationArrival();
@@ -1306,7 +1388,12 @@ export default function EmergencyMap({
               <button
                 onClick={() => {
                   if (navProgress >= 1.0) {
+                    const routeId = selectedRoute?.emergency_id || selectedRoute?.id || activeEmergency?.id || loadedRouteIdRef.current;
+                    if (routeId) arrivedRouteIdsRef.current.delete(routeId);
+                    arrivalFiredRef.current = false;
+                    navProgressRef.current = 0;
                     hasPlayedSirenRef.current = false;
+                    lastPreemptRef.current = { 1: false, 2: false, 3: false };
                     setNavProgress(0);
                     setManualSignalOverrides({ 1: null, 2: null, 3: null });
                     setIsNavigating(true);
@@ -1363,6 +1450,10 @@ export default function EmergencyMap({
 
               <button
                 onClick={() => {
+                  const routeId = selectedRoute?.emergency_id || selectedRoute?.id || activeEmergency?.id || loadedRouteIdRef.current;
+                  if (routeId) arrivedRouteIdsRef.current.delete(routeId);
+                  arrivalFiredRef.current = false;
+                  navProgressRef.current = 0;
                   setNavProgress(0);
                   setIsNavigating(false);
                   hasPlayedSirenRef.current = false;
@@ -1525,16 +1616,40 @@ export default function EmergencyMap({
                 </Popup>
               </Marker>
 
-              {/* Congested Road Indicator if traversing congested zones */}
-              {routeMode !== "CONGESTION_AWARE" && (
-                <Polyline
-                  positions={CONGESTED_80FT_ROAD_POINTS}
-                  color="#ef4444"
-                  weight={8}
-                  opacity={0.85}
-                  dashArray="14, 10"
-                />
-              )}
+              {/* Alternative Candidate Routes (Shortest / Fastest / Congestion-Aware Comparison Polylines) */}
+              {routeCandidates &&
+                Object.entries(routeCandidates).map(([stratKey, cand]) => {
+                  if (stratKey === routeMode || !cand?.route_geometry?.coordinates?.length) return null;
+                  const altPositions = cand.route_geometry.coordinates.map((c) => [c[1], c[0]]);
+                  const altColor =
+                    stratKey === "SHORTEST" ? "#f59e0b" : stratKey === "FASTEST" ? "#818cf8" : "#10b981";
+                  return (
+                    <Polyline
+                      key={`alt-route-${stratKey}`}
+                      positions={altPositions}
+                      color={altColor}
+                      weight={4}
+                      opacity={0.55}
+                      dashArray="10, 8"
+                    >
+                      <Popup>
+                        <div style={{ color: "#0f172a", minWidth: "180px" }}>
+                          <strong>{cand.strategy_title}</strong>
+                          <div style={{ fontSize: "11px", marginTop: "3px" }}>
+                            Corridor: {cand.primary_corridor}
+                          </div>
+                          <div style={{ fontSize: "11px" }}>
+                            Distance: <strong>{cand.distance_km} km</strong> · ETA:{" "}
+                            <strong>{cand.estimated_duration_minutes} min</strong>
+                          </div>
+                          <div style={{ fontSize: "11px", color: "#dc2626" }}>
+                            {cand.traffic_delay_label} ({cand.vs_active})
+                          </div>
+                        </div>
+                      </Popup>
+                    </Polyline>
+                  );
+                })}
 
               {/* Traveled Route Segment (Solid Green Corridor) */}
               {vehicleState && vehicleState.traveledPoints.length >= 2 && (
@@ -1758,20 +1873,22 @@ export default function EmergencyMap({
         </MapContainer>
       </div>
 
-      {/* 2. THREE ROUTE MODE CARDS (Image 2) & ALTERNATIVE ROUTE COMPARISON TABLE (Image 3) */}
-      {/* Shown ONLY After Ambulance Assignment / Active Route */}
-      {isCorridorActive && !isCitizenRole && (
+      {/* 2. THREE ROUTE MODE CARDS & ALTERNATIVE ROUTE COMPARISON TABLE */}
+      {/* Shown ONLY After Ambulance Assignment / Active Route when inline comparison is enabled */}
+      {showComparisonPanel && isCorridorActive && !isCitizenRole && (
         <RouteComparisonPanel
           activeRouteType={routeMode}
           onRouteChange={(newMode) => {
             setRouteMode(newMode);
+            arrivalFiredRef.current = false;
+            navProgressRef.current = 0;
             setNavProgress(0);
             setIsNavigating(false);
             lastPreemptRef.current = { 1: false, 2: false, 3: false };
             setManualSignalOverrides({ 1: null, 2: null, 3: null });
           }}
-          targetHospitalName={hospitals[0]?.name || "SPARSH RR Nagar"}
-          candidates={selectedRoute?.candidates || selectedRoute?.route_geometry?.candidates}
+          targetHospitalName={hospitals[0]?.name || "Partner Trauma Hospital"}
+          candidates={routeCandidates}
         />
       )}
     </div>

@@ -96,13 +96,16 @@ def update_traffic_congestion(payload: CongestionUpdateRequest, db: Session = De
                 acc = db.query(Accident).filter(Accident.id == em.accident_id).first()
                 amb = db.query(Ambulance).filter(Ambulance.id == em.assigned_ambulance_id).first()
                 if acc and amb:
-                    calc = TrafficService.calculate_road_network_route(
+                    from app.models.hospital import Hospital
+                    hosp = db.query(Hospital).filter(Hospital.id == em.hospital_id).first() if em.hospital_id else None
+                    calc = TrafficService.calculate_multi_route_strategies(
                         origin_lat=amb.latitude,
                         origin_lon=amb.longitude,
-                        dest_lat=acc.latitude,
-                        dest_lon=acc.longitude,
+                        accident_lat=acc.latitude,
+                        accident_lon=acc.longitude,
+                        hospital_lat=hosp.latitude if hosp else None,
+                        hospital_lon=hosp.longitude if hosp else None,
                         emergency_id=em.id,
-                        avoid_congestion=True
                     )
                     route_payload = RouteCreate(
                         emergency_id=em.id,
@@ -136,17 +139,20 @@ def recalculate_route(emergency_id: int, avoid_congestion: bool = True, db: Sess
 
     acc = db.query(Accident).filter(Accident.id == em.accident_id).first()
     amb = db.query(Ambulance).filter(Ambulance.id == em.assigned_ambulance_id).first()
+    from app.models.hospital import Hospital
+    hosp = db.query(Hospital).filter(Hospital.id == em.hospital_id).first() if em.hospital_id else None
 
     origin_lat, origin_lon = (amb.latitude, amb.longitude) if amb else (12.9750, 77.6050)
     dest_lat, dest_lon = (acc.latitude, acc.longitude) if acc else (12.9716, 77.5946)
 
-    calc = TrafficService.calculate_road_network_route(
+    calc = TrafficService.calculate_multi_route_strategies(
         origin_lat=origin_lat,
         origin_lon=origin_lon,
-        dest_lat=dest_lat,
-        dest_lon=dest_lon,
+        accident_lat=dest_lat,
+        accident_lon=dest_lon,
+        hospital_lat=hosp.latitude if hosp else None,
+        hospital_lon=hosp.longitude if hosp else None,
         emergency_id=emergency_id,
-        avoid_congestion=avoid_congestion
     )
 
     route_payload = RouteCreate(

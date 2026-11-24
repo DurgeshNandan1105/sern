@@ -1,92 +1,109 @@
 import { useMemo } from "react";
-import { ShieldAlert, GitFork, Check } from "lucide-react";
+import { ShieldAlert, GitFork, Check, Sparkles } from "lucide-react";
 import "./RouteComparisonPanel.css";
 
-const DEFAULT_ROUTE_OPTIONS = [
+const STRATEGY_METADATA = [
   {
     id: "SHORTEST",
     title: "Shortest Route",
     subtitle: "Minimum Travel Distance",
-    desc: "Selects the most direct road corridor to keep total travel distance as short as possible.",
-    primaryCorridor: "Dr. Vishnuvardhan Rd -> RR Nagar...",
-    fullCorridor: "Dr. Vishnuvardhan Rd -> RR Nagar Double Rd -> Ideal Homes Arterial",
-    distanceKm: 5.29,
-    etaText: "19m 49s",
-    etaColor: "#f59e0b",
-    avgSpeedText: "16 km/h",
-    delayText: "+7m 50s",
-    delayColor: "#ef4444",
-    vsActive: "+5m 02s slower",
-    delayedSection: "Jawaharlal Nehru Rd (BEML 5th Stage - Ideal Homes) (HIGH)",
-    hasDelayedSection: true,
+    desc: "Uses Dijkstra distance weights to select the most direct road corridor with minimum km.",
   },
   {
     id: "FASTEST",
     title: "Fastest Route",
     subtitle: "Highest Free-Flow Road Speed",
-    desc: "Prioritizes major arterial roads and highways for higher ambulance cruising speeds.",
-    primaryCorridor: "Dr. Vishnuvardhan Rd -> RR Nagar...",
-    fullCorridor: "Dr. Vishnuvardhan Rd -> RR Nagar Double Rd -> Ideal Homes Arterial",
-    distanceKm: 5.29,
-    etaText: "19m 49s",
-    etaColor: "#f59e0b",
-    avgSpeedText: "16 km/h",
-    delayText: "+7m 50s",
-    delayColor: "#ef4444",
-    vsActive: "+5m 02s slower",
-    delayedSection: "Jawaharlal Nehru Rd (BEML 5th Stage - Ideal Homes) (HIGH)",
-    hasDelayedSection: true,
+    desc: "Uses Dijkstra free-flow time weights to prioritize major arterials and flyovers.",
   },
   {
     id: "CONGESTION_AWARE",
     title: "Congestion-Aware Route",
     subtitle: "Traffic-Adjusted Optimal ETA",
-    desc: "Accounts for live simulated road congestion to bypass delays and minimize arrival time.",
-    primaryCorridor: "Dr. Vishnuvardhan Rd -> Kenchen...",
-    fullCorridor: "Dr. Vishnuvardhan Rd -> Kenchenahalli Main Rd -> Ideal Homes Arterial",
-    distanceKm: 6.87,
-    etaText: "14m 47s",
-    etaColor: "#10b981",
-    avgSpeedText: "27.9 km/h",
-    delayText: "No delay",
-    delayColor: "#10b981",
-    vsActive: "Selected",
-    delayedSection: null,
-    hasDelayedSection: false,
-  }
+    desc: "Accounts for live intersection congestion to bypass delays and minimize arrival time.",
+  },
 ];
+
+function formatDurationMinutes(durationMin) {
+  const safeMin = Math.max(0.1, Number(durationMin) || 0);
+  const mins = Math.floor(safeMin);
+  const secs = Math.round((safeMin - mins) * 60);
+  if (secs === 60) {
+    return `${mins + 1}m 00s`;
+  }
+  return `${mins}m ${secs.toString().padStart(2, "0")}s`;
+}
 
 export default function RouteComparisonPanel({
   activeRouteType = "CONGESTION_AWARE",
   onRouteChange = null,
-  targetHospitalName = "SPARSH RR Nagar",
-  candidates = null
+  targetHospitalName = "Partner Trauma Hospital",
+  candidates = null,
 }) {
   const routeOptions = useMemo(() => {
-    if (!candidates) return DEFAULT_ROUTE_OPTIONS;
-    return DEFAULT_ROUTE_OPTIONS.map((def) => {
-      const cand = candidates[def.id];
-      if (!cand) return def;
-      const dur = cand.estimated_duration_minutes || 14.8;
-      const min = Math.floor(dur);
-      const sec = Math.round((dur % 1) * 60);
+    if (!candidates || Object.keys(candidates).length === 0) {
+      return [];
+    }
+
+    const activeCand = candidates[activeRouteType] || candidates.CONGESTION_AWARE || candidates.FASTEST || candidates.SHORTEST;
+    const activeEta = activeCand?.estimated_duration_minutes ?? 0;
+
+    return STRATEGY_METADATA.map((meta) => {
+      const cand = candidates[meta.id];
+      if (!cand) return null;
+
+      const dur = Number(cand.estimated_duration_minutes || 0);
+      const delayMins = Number(cand.traffic_delay_minutes || 0);
+      const isOptimal = Boolean(cand.is_optimal);
+      const isSelected = activeRouteType === meta.id;
+
+      // Calculate live comparison vs currently active route
+      let vsActiveText = cand.vs_active || "Computed";
+      if (isSelected) {
+        vsActiveText = isOptimal ? "Selected (Optimal)" : "Currently Active";
+      } else if (activeEta > 0) {
+        const diff = dur - activeEta;
+        if (Math.abs(diff) < 0.08) {
+          vsActiveText = delayMins > 0.4 ? "Equal ETA (Higher delay)" : "Same ETA";
+        } else if (diff > 0) {
+          vsActiveText = `+${formatDurationMinutes(diff)} slower`;
+        } else {
+          vsActiveText = `${formatDurationMinutes(Math.abs(diff))} faster`;
+        }
+      }
+
+      const fullCorridor = cand.primary_corridor || "Bengaluru Arterial Road Network";
+      const shortCorridor = fullCorridor.length > 34 ? `${fullCorridor.slice(0, 34)}...` : fullCorridor;
+      const hasDelayed = Array.isArray(cand.delayed_road_sections) && cand.delayed_road_sections.length > 0;
+
+      const etaColor = isOptimal || delayMins < 0.5 ? "#10b981" : delayMins >= 2.0 ? "#f59e0b" : "#38bdf8";
+      const delayColor = delayMins >= 0.4 ? "#ef4444" : "#10b981";
+
       return {
-        ...def,
-        primaryCorridor: cand.primary_corridor || def.primaryCorridor,
-        fullCorridor: cand.primary_corridor || def.fullCorridor,
-        distanceKm: cand.distance_km || def.distanceKm,
-        etaText: `${min}m ${sec.toString().padStart(2, "0")}s`,
-        avgSpeedText: `${cand.average_speed_kmh || 25} km/h`,
-        delayText: cand.traffic_delay_label || def.delayText,
-        delayedSection: cand.delayed_road_sections?.join(", ") || def.delayedSection,
-        hasDelayedSection: Boolean(cand.delayed_road_sections && cand.delayed_road_sections.length > 0),
+        ...meta,
+        primaryCorridor: shortCorridor,
+        fullCorridor,
+        distanceKm: Number(cand.distance_km || 0),
+        etaText: formatDurationMinutes(dur),
+        etaColor,
+        avgSpeedText: `${cand.average_speed_kmh || 30} km/h`,
+        delayText: cand.traffic_delay_label || "No delay",
+        delayColor,
+        vsActive: vsActiveText,
+        delayedSection: hasDelayed ? cand.delayed_road_sections.join(" · ") : null,
+        hasDelayedSection: hasDelayed,
+        isOptimal,
+        optimalBadge: cand.optimal_badge || (isOptimal ? "OPTIMAL ROUTE SELECTED" : null),
       };
-    });
-  }, [candidates]);
+    }).filter(Boolean);
+  }, [candidates, activeRouteType]);
+
+  if (routeOptions.length === 0) {
+    return null;
+  }
 
   return (
     <div className="route-comparison-container">
-      {/* 1. THREE ROUTE MODE CARDS (Image 2) */}
+      {/* 1. THREE LIVE DIJKSTRA ROUTE MODE CARDS */}
       <div className="route-cards-grid">
         {routeOptions.map((route) => {
           const isActive = activeRouteType === route.id;
@@ -97,6 +114,12 @@ export default function RouteComparisonPanel({
               className={`route-card ${isActive ? "active-route" : ""}`}
             >
               <div>
+                {route.isOptimal && (
+                  <div className="route-card-badge-optimal">
+                    <Sparkles size={11} /> {route.optimalBadge || "OPTIMAL ROUTE SELECTED"}
+                  </div>
+                )}
+
                 <div className="route-card-header">
                   <h3>{route.title}</h3>
                   {isActive && (
@@ -112,7 +135,7 @@ export default function RouteComparisonPanel({
                 <div className="route-card-details">
                   <div className="route-detail-row">
                     <span>Primary Corridor</span>
-                    <strong>{route.primaryCorridor}</strong>
+                    <strong title={route.fullCorridor}>{route.primaryCorridor}</strong>
                   </div>
 
                   <div className="route-detail-row">
@@ -154,26 +177,22 @@ export default function RouteComparisonPanel({
                   if (!isActive && onRouteChange) onRouteChange(route.id);
                 }}
               >
-                {isActive ? (
-                  <>Currently Active</>
-                ) : (
-                  <>Select {route.title}</>
-                )}
+                {isActive ? <>Currently Active</> : <>Select {route.title}</>}
               </button>
             </div>
           );
         })}
       </div>
 
-      {/* 2. ALTERNATIVE ROUTE COMPARISON TABLE (Image 3) */}
+      {/* 2. LIVE ALTERNATIVE ROUTE COMPARISON TABLE */}
       <div className="route-table-panel">
         <div className="route-table-header">
           <h3>
             <GitFork size={20} color="#38bdf8" />
-            Alternative Route Comparison
+            Alternative Route Comparison (Live Dijkstra Engine)
           </h3>
           <div className="route-table-meta">
-            Live comparison for {targetHospitalName}
+            Live comparison to {targetHospitalName}
           </div>
         </div>
 
@@ -199,12 +218,15 @@ export default function RouteComparisonPanel({
                   <tr key={route.id} className={isActive ? "table-active-row" : ""}>
                     <td className="route-name-cell">
                       <strong>{route.title}</strong>
+                      {route.isOptimal && (
+                        <span className="table-badge-active" style={{ background: "rgba(56, 189, 248, 0.16)", color: "#38bdf8", borderColor: "rgba(56, 189, 248, 0.4)" }}>
+                          Optimal
+                        </span>
+                      )}
                       {isActive && <span className="table-badge-active">Active</span>}
                     </td>
 
-                    <td className="corridor-cell">
-                      {route.fullCorridor}
-                    </td>
+                    <td className="corridor-cell">{route.fullCorridor}</td>
 
                     <td>{route.distanceKm.toFixed(2)} km</td>
 

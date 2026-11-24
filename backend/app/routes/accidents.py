@@ -141,20 +141,22 @@ def validate_accident(
                     .filter(Assignment.emergency_id == emergency.id, Assignment.status == "ACTIVE")
                     .first()
                 )
+                existing_route = RoutingAdapterService.get_route_info(db, emergency.id)
+                if existing_route is None:
+                    try:
+                        existing_route = RoutingAdapterService.generate_dev_mock_route(db, emergency.id)
+                    except Exception as r_err:
+                        logger.debug("Dev route notice: %s", r_err)
+
                 if amb and assignment:
                     dispatch_resp = EmergencyDispatchResponse(
                         emergency=em_resp,
                         assigned_ambulance=AmbulanceResponse.model_validate(amb),
-                        distance_km=4.8,
+                        distance_km=existing_route.distance_km if existing_route else 4.8,
                         assignment=AssignmentResponse.model_validate(assignment),
                         message=f"Ambulance {amb.registration_number} dispatched successfully."
                     )
                     ws_manager.broadcast_sync("AMBULANCE_DISPATCHED", dispatch_resp.model_dump())
-                # Auto-generate route info for the newly dispatched emergency
-                try:
-                    RoutingAdapterService.generate_dev_mock_route(db, emergency.id)
-                except Exception as r_err:
-                    logger.debug("Dev route notice: %s", r_err)
             except Exception as e:
                 logger.warning("Error auto-broadcasting dispatch: %s", e)
 

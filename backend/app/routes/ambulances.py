@@ -195,7 +195,9 @@ def stream_ambulance_telemetry(
     ambulance.latitude = payload.latitude
     ambulance.longitude = payload.longitude
     if payload.status and payload.status in {"AVAILABLE", "ASSIGNED", "EN_ROUTE", "AT_SCENE", "TRANSPORTING", "UNAVAILABLE"}:
-        ambulance.status = payload.status
+        # Ignore stale out-of-order EN_ROUTE packets if unit already reached scene or transporting
+        if not (payload.status == "EN_ROUTE" and ambulance.status in {"AT_SCENE", "TRANSPORTING"}):
+            ambulance.status = payload.status
     ambulance.last_updated = utc_now()
     db.commit()
     db.refresh(ambulance)

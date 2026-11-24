@@ -17,11 +17,11 @@ INITIAL_INTERSECTIONS: Dict[str, Dict[str, Any]] = {
         "signal_state": "NORMAL_CYCLE",  # GREEN_PREEMPTION, NORMAL_CYCLE, HOLD_RED, CAUTION_AMBER
         "countdown_seconds": 24,
         "cycle_duration": 60,
-        "congestion_index": 28,  # %
+        "congestion_index": 58,  # %
         "green_corridor_active": False,
         "preempted_for_emergency_id": None,
         "flow_rate_vph": 1540,
-        "avg_speed_kmh": 42,
+        "avg_speed_kmh": 26,
     },
     "INT-TRINITY": {
         "id": "INT-TRINITY",
@@ -202,6 +202,51 @@ INITIAL_INTERSECTIONS: Dict[str, Dict[str, Any]] = {
         "preempted_for_emergency_id": None,
         "flow_rate_vph": 1720,
         "avg_speed_kmh": 26,
+    },
+    "INT-ANIL-KUMBLE": {
+        "id": "INT-ANIL-KUMBLE",
+        "name": "Anil Kumble Circle / MG Road CBD",
+        "latitude": 12.9756,
+        "longitude": 77.5996,
+        "roads": ["MG Road", "St. Marks Road", "Kasturba Road"],
+        "signal_state": "NORMAL_CYCLE",
+        "countdown_seconds": 38,
+        "cycle_duration": 75,
+        "congestion_index": 72,
+        "green_corridor_active": False,
+        "preempted_for_emergency_id": None,
+        "flow_rate_vph": 2150,
+        "avg_speed_kmh": 19,
+    },
+    "INT-SHIVAJI": {
+        "id": "INT-SHIVAJI",
+        "name": "Shivajinagar / Queens Road Link",
+        "latitude": 12.9830,
+        "longitude": 77.6035,
+        "roads": ["Queens Road", "Lady Curzon Road", "Bowring Approach"],
+        "signal_state": "NORMAL_CYCLE",
+        "countdown_seconds": 19,
+        "cycle_duration": 60,
+        "congestion_index": 18,
+        "green_corridor_active": False,
+        "preempted_for_emergency_id": None,
+        "flow_rate_vph": 1080,
+        "avg_speed_kmh": 46,
+    },
+    "INT-ULSOOR": {
+        "id": "INT-ULSOOR",
+        "name": "Halasuru / Ulsoor Lake Arterial Bypass",
+        "latitude": 12.9808,
+        "longitude": 77.6240,
+        "roads": ["Ulsoor Road", "Dickenson Road", "Halasuru Main Rd"],
+        "signal_state": "NORMAL_CYCLE",
+        "countdown_seconds": 21,
+        "cycle_duration": 60,
+        "congestion_index": 16,
+        "green_corridor_active": False,
+        "preempted_for_emergency_id": None,
+        "flow_rate_vph": 1120,
+        "avg_speed_kmh": 52,
     },
 }
 
@@ -439,6 +484,152 @@ ROAD_SEGMENTS: List[Dict[str, Any]] = [
             [77.7050, 12.9820],
             [77.7345, 12.9855]
         ]
+    },
+    {
+        "id": "SEG-CORP-ANIL",
+        "u": "INT-CORP-CIRCLE",
+        "v": "INT-ANIL-KUMBLE",
+        "name": "Kasturba Rd (CBD Direct)",
+        "distance_km": 1.45,
+        "free_speed_kmh": 34,
+        "waypoints": [
+            [77.5877, 12.9698],
+            [77.5935, 12.9728],
+            [77.5996, 12.9756]
+        ]
+    },
+    {
+        "id": "SEG-ANIL-MG",
+        "u": "INT-ANIL-KUMBLE",
+        "v": "INT-MG-BRG",
+        "name": "MG Road Central Stretch",
+        "distance_km": 0.90,
+        "free_speed_kmh": 34,
+        "waypoints": [
+            [77.5996, 12.9756],
+            [77.6035, 12.9748],
+            [77.6074, 12.9740]
+        ]
+    },
+    {
+        "id": "SEG-ANIL-VASANTH",
+        "u": "INT-ANIL-KUMBLE",
+        "v": "INT-VASANTH",
+        "name": "Minsk Square & Queens Rd Express",
+        "distance_km": 1.65,
+        "free_speed_kmh": 58,
+        "waypoints": [
+            [77.5996, 12.9756],
+            [77.5982, 12.9815],
+            [77.5970, 12.9880]
+        ]
+    },
+    {
+        "id": "SEG-RICH-SHIVAJI",
+        "u": "INT-RICHMOND",
+        "v": "INT-SHIVAJI",
+        "name": "Richmond Flyover & Dickenson Bypass",
+        "distance_km": 2.35,
+        "free_speed_kmh": 62,
+        "waypoints": [
+            [77.5992, 12.9664],
+            [77.6085, 12.9715],
+            [77.6065, 12.9785],
+            [77.6035, 12.9830]
+        ]
+    },
+    {
+        "id": "SEG-MG-SHIVAJI",
+        "u": "INT-MG-BRG",
+        "v": "INT-SHIVAJI",
+        "name": "Kamaraj & Lady Curzon Connector",
+        "distance_km": 1.25,
+        "free_speed_kmh": 34,
+        "waypoints": [
+            [77.6074, 12.9740],
+            [77.6058, 12.9788],
+            [77.6035, 12.9830]
+        ]
+    },
+    {
+        "id": "SEG-SHIVAJI-VASANTH",
+        "u": "INT-SHIVAJI",
+        "v": "INT-VASANTH",
+        "name": "Lady Curzon & Cunningham Hospital Link",
+        "distance_km": 0.95,
+        "free_speed_kmh": 52,
+        "waypoints": [
+            [77.6035, 12.9830],
+            [77.6002, 12.9856],
+            [77.5970, 12.9880]
+        ]
+    },
+    {
+        "id": "SEG-TRINITY-ULSOOR",
+        "u": "INT-TRINITY",
+        "v": "INT-ULSOOR",
+        "name": "Halasuru Lake Express Link",
+        "distance_km": 1.15,
+        "free_speed_kmh": 62,
+        "waypoints": [
+            [77.6200, 12.9723],
+            [77.6225, 12.9768],
+            [77.6240, 12.9808]
+        ]
+    },
+    {
+        "id": "SEG-ULSOOR-SHIVAJI",
+        "u": "INT-ULSOOR",
+        "v": "INT-SHIVAJI",
+        "name": "Ulsoor Lake Perimeter Bypass",
+        "distance_km": 2.35,
+        "free_speed_kmh": 58,
+        "waypoints": [
+            [77.6240, 12.9808],
+            [77.6145, 12.9822],
+            [77.6035, 12.9830]
+        ]
+    },
+    {
+        "id": "SEG-INDIRA-ULSOOR",
+        "u": "INT-INDIRA-100FT",
+        "v": "INT-ULSOOR",
+        "name": "CMH Road Express Corridor",
+        "distance_km": 1.95,
+        "free_speed_kmh": 58,
+        "waypoints": [
+            [77.6408, 12.9784],
+            [77.6320, 12.9795],
+            [77.6240, 12.9808]
+        ]
+    },
+    {
+        "id": "SEG-KORAMANGALA-INDIRA",
+        "u": "INT-KORAMANGALA",
+        "v": "INT-INDIRA-100FT",
+        "name": "Domlur Inner Ring Flyover",
+        "distance_km": 5.30,
+        "free_speed_kmh": 64,
+        "waypoints": [
+            [77.6221, 12.9344],
+            [77.6310, 12.9520],
+            [77.6375, 12.9660],
+            [77.6408, 12.9784]
+        ]
+    },
+    {
+        "id": "SEG-RR-SILK",
+        "u": "INT-RRNAGAR",
+        "v": "INT-SILKBOARD",
+        "name": "Outer Ring & NICE Expressway Bypass",
+        "distance_km": 12.2,
+        "free_speed_kmh": 68,
+        "waypoints": [
+            [77.5180, 12.9285],
+            [77.5500, 12.9120],
+            [77.5880, 12.9140],
+            [77.6234, 12.9176]
+        ]
     }
 ]
 
@@ -529,6 +720,8 @@ class TrafficService:
 
             adj[u].append((v, cost, seg))
             rev_seg = dict(seg)
+            rev_seg["u"] = v
+            rev_seg["v"] = u
             rev_seg["waypoints"] = list(reversed(seg["waypoints"]))
             adj[v].append((u, cost, rev_seg))
 
@@ -573,7 +766,7 @@ class TrafficService:
             act_t = (seg["distance_km"] / act_speed) * 60.0
             total_actual_time_min += act_t
 
-            if avg_cong >= 50:
+            if avg_cong >= 45:
                 delayed_sections.append(f"{seg['name']} ({int(avg_cong)}% HIGH)")
 
             if seg["name"] not in road_names:
@@ -594,30 +787,71 @@ class TrafficService:
         origin_lon: float,
         dest_lat: float,
         dest_lon: float,
-        strategy: str = "CONGESTION_AWARE"
+        strategy: str = "CONGESTION_AWARE",
+        via_lat: Optional[float] = None,
+        via_lon: Optional[float] = None,
     ) -> Dict[str, Any]:
-        """Calculates a single routing strategy between two points on the road network."""
-        start_node, dist_to_start = cls.find_closest_intersection(origin_lat, origin_lon)
-        end_node, dist_to_end = cls.find_closest_intersection(dest_lat, dest_lon)
-
-        best_path, path_dist_km, travel_time_min, delay_min, road_names, delayed_sections, intersections = (
-            cls.run_dijkstra_path(start_node, end_node, strategy=strategy)
-        )
+        """
+        Calculates a single routing strategy on the OpenStreetMap road network.
+        When via_lat/via_lon (accident scene) is provided separately from dest (hospital),
+        computes two genuine Dijkstra legs: Ambulance -> Accident -> Hospital.
+        """
+        waypoints_legs: List[Tuple[float, float, float, float]] = []
+        if via_lat is not None and via_lon is not None:
+            waypoints_legs.append((origin_lat, origin_lon, via_lat, via_lon))
+            waypoints_legs.append((via_lat, via_lon, dest_lat, dest_lon))
+        else:
+            waypoints_legs.append((origin_lat, origin_lon, dest_lat, dest_lon))
 
         full_coords: List[List[float]] = [[origin_lon, origin_lat]]
-        total_dist_km = dist_to_start
+        total_dist_km = 0.0
+        total_actual_time_min = 0.0
+        total_delay_min = 0.0
+        all_road_names: List[str] = []
+        all_delayed_sections: List[str] = []
+        all_intersections: List[Dict[str, Any]] = []
+        seen_inter_ids = set()
 
-        if best_path:
-            for seg in best_path:
-                full_coords.extend(seg["waypoints"])
-            total_dist_km += path_dist_km
-        else:
-            direct_dist = haversine_distance(origin_lat, origin_lon, dest_lat, dest_lon)
-            total_dist_km = max(0.8, direct_dist)
-            full_coords.append([(origin_lon + dest_lon) / 2.0, (origin_lat + dest_lat) / 2.0])
+        for leg_idx, (a_lat, a_lon, b_lat, b_lon) in enumerate(waypoints_legs):
+            start_node, dist_to_start = cls.find_closest_intersection(a_lat, a_lon)
+            end_node, dist_to_end = cls.find_closest_intersection(b_lat, b_lon)
 
-        total_dist_km += dist_to_end
-        full_coords.append([dest_lon, dest_lat])
+            best_path, path_dist_km, leg_actual_time_min, leg_delay_min, road_names, delayed_sections, intersections = (
+                cls.run_dijkstra_path(start_node, end_node, strategy=strategy)
+            )
+
+            # Connector approach + egress time (36 km/h urban connector speed)
+            connector_km = dist_to_start + dist_to_end
+            connector_time_min = (connector_km / 36.0) * 60.0
+
+            if best_path:
+                for seg in best_path:
+                    full_coords.extend(seg["waypoints"])
+                total_dist_km += connector_km + path_dist_km
+                total_actual_time_min += connector_time_min + leg_actual_time_min
+                total_delay_min += leg_delay_min
+            else:
+                direct_dist = haversine_distance(a_lat, a_lon, b_lat, b_lon)
+                total_dist_km += max(0.4, direct_dist)
+                node_cong = cls._intersections.get(start_node, {}).get("congestion_index", 30)
+                local_speed = max(14.0, 42.0 * (1.0 - node_cong / 130.0))
+                total_actual_time_min += (max(0.4, direct_dist) / local_speed) * 60.0
+                if node_cong >= 45:
+                    total_delay_min += (max(0.4, direct_dist) / local_speed) * 60.0 * 0.35
+                full_coords.append([(a_lon + b_lon) / 2.0, (a_lat + b_lat) / 2.0])
+
+            full_coords.append([b_lon, b_lat])
+
+            for r in road_names:
+                if r not in all_road_names:
+                    all_road_names.append(r)
+            for d in delayed_sections:
+                if d not in all_delayed_sections:
+                    all_delayed_sections.append(d)
+            for inter in intersections:
+                if inter["id"] not in seen_inter_ids:
+                    seen_inter_ids.add(inter["id"])
+                    all_intersections.append(inter)
 
         # Remove duplicate consecutive coordinates
         deduped_coords: List[List[float]] = []
@@ -625,21 +859,17 @@ class TrafficService:
             if not deduped_coords or (abs(deduped_coords[-1][0] - pt[0]) > 1e-5 or abs(deduped_coords[-1][1] - pt[1]) > 1e-5):
                 deduped_coords.append(pt)
 
-        # Baseline travel speed calculation
-        if strategy == "SHORTEST":
-            est_speed = 18.0 if delay_min > 2.0 else 32.0
-            duration_min = round((total_dist_km / est_speed) * 60.0 + delay_min, 1)
-        elif strategy == "FASTEST":
-            est_speed = 46.0
-            duration_min = round((total_dist_km / est_speed) * 60.0 + (delay_min * 0.4), 1)
-        else:  # CONGESTION_AWARE
-            est_speed = 36.0
-            duration_min = round((total_dist_km / est_speed) * 60.0, 1)
-
+        duration_min = round(max(1.0, total_actual_time_min), 1)
         avg_speed_kmh = round((total_dist_km / max(0.1, duration_min)) * 60.0, 1)
-        delay_label = f"+{int(delay_min)}m {int((delay_min % 1) * 60)}s delay" if delay_min >= 0.5 else "No delay"
+        delay_rounded = round(total_delay_min, 1)
+        if delay_rounded >= 0.4:
+            delay_mins_part = int(delay_rounded)
+            delay_secs_part = int(round((delay_rounded % 1) * 60))
+            delay_label = f"+{delay_mins_part}m {delay_secs_part:02d}s delay"
+        else:
+            delay_label = "No delay"
 
-        names = " → ".join(road_names[:3]) if road_names else "Bengaluru City Arterial Corridor"
+        names = " → ".join(all_road_names[:3]) if all_road_names else "Bengaluru City Arterial Corridor"
 
         return {
             "strategy": strategy,
@@ -650,10 +880,10 @@ class TrafficService:
             "distance_km": round(total_dist_km, 2),
             "estimated_duration_minutes": duration_min,
             "average_speed_kmh": avg_speed_kmh,
-            "traffic_delay_minutes": round(delay_min, 1),
+            "traffic_delay_minutes": delay_rounded,
             "traffic_delay_label": delay_label,
             "primary_corridor": names,
-            "delayed_road_sections": delayed_sections if strategy != "CONGESTION_AWARE" else [],
+            "delayed_road_sections": all_delayed_sections,
             "route_geometry": {
                 "type": "LineString",
                 "coordinates": deduped_coords,
@@ -667,7 +897,7 @@ class TrafficService:
                     "signal_state": item["signal_state"],
                     "congestion_index": item["congestion_index"]
                 }
-                for item in intersections
+                for item in all_intersections
             ],
             "is_optimal": False
         }
@@ -685,47 +915,69 @@ class TrafficService:
     ) -> Dict[str, Any]:
         """
         Calculates all three candidate routes (Shortest, Fastest, Congestion-Aware)
-        using Dijkstra on the road network graph.
+        using Dijkstra on the road network graph across Ambulance -> Accident -> Hospital.
         Compares distance, travel time, and traffic delays, and selects the optimal route.
         Tags the winner as 'OPTIMAL ROUTE SELECTED' and prepares predictive signal sequence.
         """
-        # If destination hospital is provided, route traverses: Ambulance -> Accident -> Hospital
-        # Otherwise: Ambulance -> Accident
-        target_lat = hospital_lat if hospital_lat is not None else accident_lat
-        target_lon = hospital_lon if hospital_lon is not None else accident_lon
+        if hospital_lat is not None and hospital_lon is not None:
+            dest_lat, dest_lon = hospital_lat, hospital_lon
+            via_lat, via_lon = accident_lat, accident_lon
+        else:
+            dest_lat, dest_lon = accident_lat, accident_lon
+            via_lat, via_lon = None, None
 
-        # Calculate all 3 strategies genuinely using Dijkstra
-        shortest_cand = cls._calculate_single_strategy_route(origin_lat, origin_lon, target_lat, target_lon, strategy="SHORTEST")
-        fastest_cand = cls._calculate_single_strategy_route(origin_lat, origin_lon, target_lat, target_lon, strategy="FASTEST")
-        congestion_cand = cls._calculate_single_strategy_route(origin_lat, origin_lon, target_lat, target_lon, strategy="CONGESTION_AWARE")
+        # Calculate all 3 strategies genuinely using live graph Dijkstra
+        shortest_cand = cls._calculate_single_strategy_route(
+            origin_lat, origin_lon, dest_lat, dest_lon, strategy="SHORTEST", via_lat=via_lat, via_lon=via_lon
+        )
+        fastest_cand = cls._calculate_single_strategy_route(
+            origin_lat, origin_lon, dest_lat, dest_lon, strategy="FASTEST", via_lat=via_lat, via_lon=via_lon
+        )
+        congestion_cand = cls._calculate_single_strategy_route(
+            origin_lat, origin_lon, dest_lat, dest_lon, strategy="CONGESTION_AWARE", via_lat=via_lat, via_lon=via_lon
+        )
 
-        # Compare travel times and congestion delays to select optimal route
-        # In urban peak traffic, Congestion-Aware route provides lower actual arrival time and higher predictability
         candidates = {
             "SHORTEST": shortest_cand,
             "FASTEST": fastest_cand,
             "CONGESTION_AWARE": congestion_cand
         }
 
-        # Optimal selection: pick candidate with minimum arrival time (favoring congestion-aware in heavy traffic)
-        if congestion_cand["estimated_duration_minutes"] <= shortest_cand["estimated_duration_minutes"]:
-            selected_strategy = "CONGESTION_AWARE"
-            selection_reason = "Accounts for live simulated road congestion to bypass delays and minimize arrival time."
-        elif fastest_cand["estimated_duration_minutes"] < shortest_cand["estimated_duration_minutes"]:
-            selected_strategy = "FASTEST"
-            selection_reason = "Prioritizes major arterial roads and flyovers for higher ambulance cruising speed."
-        else:
-            selected_strategy = "SHORTEST"
-            selection_reason = "Selects the most direct geographical corridor to minimize travel distance."
+        # Dynamic Optimal Route Selection based on minimum live traffic-adjusted ETA (tie-break: lowest delay, then shortest)
+        selected_strategy = min(
+            ["CONGESTION_AWARE", "FASTEST", "SHORTEST"],
+            key=lambda k: (
+                candidates[k]["estimated_duration_minutes"],
+                candidates[k]["traffic_delay_minutes"],
+                candidates[k]["distance_km"],
+            )
+        )
 
-        # Mark optimal route
+        if selected_strategy == "CONGESTION_AWARE":
+            selection_reason = "Accounts for live road congestion to bypass chokepoints and minimize arrival time."
+        elif selected_strategy == "FASTEST":
+            selection_reason = "Prioritizes high-speed expressways and arterial flyovers for lowest travel time."
+        else:
+            selection_reason = "Direct road corridor has low congestion and provides the fastest arrival time."
+
+        chosen_candidate = candidates[selected_strategy]
+        optimal_eta = chosen_candidate["estimated_duration_minutes"]
+
+        # Annotate all candidates with live comparison metadata
         for k, v in candidates.items():
             if k == selected_strategy:
                 v["is_optimal"] = True
                 v["optimal_badge"] = "OPTIMAL ROUTE SELECTED"
                 v["selection_reason"] = selection_reason
-
-        chosen_candidate = candidates[selected_strategy]
+                v["vs_active"] = "Selected (Optimal)"
+            else:
+                diff_min = max(0.0, v["estimated_duration_minutes"] - optimal_eta)
+                if diff_min < 0.05:
+                    v["vs_active"] = "Higher traffic delay"
+                else:
+                    dm = int(diff_min)
+                    ds = int(round((diff_min % 1) * 60))
+                    v["vs_active"] = f"+{dm}m {ds:02d}s slower"
 
         # Prepare ordered signal sequence along selected route
         signal_sequence = []
@@ -736,7 +988,7 @@ class TrafficService:
                 "latitude": inter["latitude"],
                 "longitude": inter["longitude"],
                 "sequence_order": idx + 1,
-                "distance_km": round((idx + 1) * 1.5, 2),
+                "distance_km": round((idx + 1) * max(0.5, chosen_candidate["distance_km"] / max(1, len(chosen_candidate["intersections"]))), 2),
                 "state": "STANDBY_HOLD",
                 "label": "Signals in RED HOLD (Standby)"
             })

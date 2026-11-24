@@ -15,6 +15,7 @@ import "./ReportsPage.css";
 import AnalyticsPage from "./AnalyticsPage";
 import "./AnalyticsPage.css";
 import EmergencyMap from "./components/EmergencyMap";
+import RouteComparisonPanel from "./components/RouteComparisonPanel";
 import AccidentSimulatorModal from "./components/AccidentSimulatorModal";
 import AddAmbulanceModal from "./components/AddAmbulanceModal";
 import AddHospitalModal from "./components/AddHospitalModal";
@@ -128,6 +129,7 @@ function App() {
   const [intersections, setIntersections] = useState([]);
   const [systemHealth, setSystemHealth] = useState({ status: "checking", ml_model_loaded: false });
   const [selectedRoute, setSelectedRoute] = useState(null);
+  const [routeModeOverride, setRouteModeOverride] = useState(null);
   const [activeMapCenter, setActiveMapCenter] = useState([12.9716, 77.5946]);
   const [loadingData, setLoadingData] = useState(false);
 
@@ -212,8 +214,8 @@ function App() {
       if (trafficRes.status === "fulfilled" && Array.isArray(trafficRes.value)) setIntersections(trafficRes.value);
       if (emRes.status === "fulfilled") {
         setEmergencies(emRes.value);
-        // Only load route if an emergency is actively dispatched/en route
-        const activeEm = emRes.value.find(e => ['DISPATCHED', 'ASSIGNED', 'EN_ROUTE'].includes(e.status));
+        // Keep route loaded while emergency is active (including AT_SCENE / TRANSPORTING until COMPLETED/CANCELLED)
+        const activeEm = emRes.value.find(e => ['DISPATCHED', 'ASSIGNED', 'EN_ROUTE', 'AT_SCENE', 'TRANSPORTING'].includes(e.status));
         if (activeEm && activeRouteEmergencyIdRef.current !== activeEm.id) {
           handleViewRoute(activeEm.id, true);
         } else if (!activeEm) {
@@ -244,7 +246,14 @@ function App() {
           playEmergencyAlert();
           setAccidents((prev) => [data, ...prev.filter((a) => a.id !== data.id)]);
         } else if (type === "ACCIDENT_VALIDATED") {
-          setAccidents((prev) => prev.map((a) => (a.id === data.id ? { ...a, ...data } : a)));
+          const accData = data?.accident || data;
+          const emData = data?.emergency || null;
+          if (accData?.id) {
+            setAccidents((prev) => prev.map((a) => (a.id === accData.id ? { ...a, ...accData } : a)));
+          }
+          if (emData?.id) {
+            setEmergencies((prev) => [emData, ...prev.filter((e) => e.id !== emData.id)]);
+          }
         } else if (type === "EMERGENCY_CREATED") {
           setEmergencies((prev) => [data, ...prev.filter((e) => e.id !== data.id)]);
         } else if (type === "EMERGENCY_STATUS_UPDATED") {
@@ -257,10 +266,10 @@ function App() {
             );
           }
           if (data?.emergency) {
-            setEmergencies((prev) =>
-              prev.map((e) => (e.id === data.emergency.id ? { ...e, ...data.emergency } : e))
-            );
-            handleViewRoute(data.emergency.id, true);
+            setEmergencies((prev) => [data.emergency, ...prev.filter((e) => e.id !== data.emergency.id)]);
+            if (activeRouteEmergencyIdRef.current !== data.emergency.id) {
+              handleViewRoute(data.emergency.id, true);
+            }
           }
         } else if (type === "AMBULANCE_LOCATION_UPDATED") {
           setAmbulances((prev) => prev.map((a) => (a.id === data.id ? { ...a, ...data } : a)));
@@ -280,6 +289,10 @@ function App() {
         } else if (type === "NOTIFICATION_RECORDED") {
           setNotifications((prev) => [data, ...prev.filter((n) => n.id !== data.id)]);
         } else if (type === "ROUTE_UPDATED") {
+          if (data?.emergency_id) {
+            activeRouteEmergencyIdRef.current = data.emergency_id;
+          }
+          setRouteModeOverride(null);
           setSelectedRoute(data);
         } else if (type === "TRAFFIC_SIGNAL_UPDATED" || type === "TRAFFIC_CONGESTION_UPDATED") {
           if (data?.intersections) setIntersections(data.intersections);
@@ -366,6 +379,13 @@ function App() {
     try {
       const em = emergencies.find(e => e.id === emergencyId);
       if (em && em.status === nextStatus) return;
+      if (
+        em &&
+        nextStatus === "AT_SCENE" &&
+        ["AT_SCENE", "TRANSPORTING", "COMPLETED", "CANCELLED"].includes(em.status)
+      ) {
+        return;
+      }
       await sernApi.updateEmergencyStatus(emergencyId, nextStatus, `Updated to ${nextStatus} by operator.`);
       await fetchData();
     } catch (err) {
@@ -438,6 +458,17 @@ function App() {
   const activeEmergencies = emergencies.filter(e => !["COMPLETED", "CANCELLED"].includes(e.status));
   const availableAmbulances = ambulances.filter(a => a.status === "AVAILABLE");
   const pendingAccidents = accidents.filter(a => a.validation_status === "PENDING");
+  const activeRouteCandidates = selectedRoute?.candidates || selectedRoute?.route_geometry?.candidates || null;
+  const effectiveRouteMode =
+    routeModeOverride ||
+    selectedRoute?.selected_strategy ||
+    selectedRoute?.route_geometry?.selected_candidate ||
+    "CONGESTION_AWARE";
+  const activeEmergencyForRoute = emergencies.find(e => e.id === selectedRoute?.emergency_id) || activeEmergencies[0] || null;
+  const targetHospitalForRoute =
+    hospitals.find(h => h.id === activeEmergencyForRoute?.hospital_id)?.name ||
+    hospitals[0]?.name ||
+    "Partner Trauma Hospital";
 
   const operatorStats = [
     {
@@ -888,6 +919,9 @@ function App() {
                       selectedRoute={selectedRoute}
                       activeCenter={activeMapCenter}
                       isCitizenRole={isCitizen}
+                      routeMode={effectiveRouteMode}
+                      onRouteModeChange={setRouteModeOverride}
+                      showComparisonPanel={false}
                       onOpenCitizenReport={() => setShowCitizenReport(true)}
                       onSelectAccident={(acc) => {
                         if (!isCitizen) {
@@ -1020,6 +1054,18 @@ function App() {
                   )}
                 </div>
               </section>
+
+              {/* Full-Width Live Dijkstra Multi-Route Comparison (Shortest, Fastest, Congestion-Aware) */}
+              {!isCitizen && activeRouteCandidates && (
+                <section style={{ marginBottom: "20px" }}>
+                  <RouteComparisonPanel
+                    activeRouteType={effectiveRouteMode}
+                    onRouteChange={(newMode) => setRouteModeOverride(newMode)}
+                    targetHospitalName={targetHospitalForRoute}
+                    candidates={activeRouteCandidates}
+                  />
+                </section>
+              )}
 
               {/* Bottom Quick Row (Role-Tailored) */}
               <section className="bottom-grid">
@@ -1537,6 +1583,8 @@ function App() {
               accidents={accidents}
               hospitals={hospitals}
               selectedRoute={selectedRoute}
+              routeMode={effectiveRouteMode}
+              onRouteModeChange={setRouteModeOverride}
               wsStatus={wsStatus}
               onViewRoute={handleViewRoute}
               onNavigate={setActivePage}
@@ -1585,7 +1633,7 @@ function App() {
           if (newAcc && newAcc.latitude && newAcc.longitude) {
             setActiveMapCenter([newAcc.latitude, newAcc.longitude]);
           }
-          if (newEm && newEm.id) {
+          if (newEm && newEm.id && activeRouteEmergencyIdRef.current !== newEm.id) {
             await handleViewRoute(newEm.id, true);
           }
           await fetchData();

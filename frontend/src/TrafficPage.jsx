@@ -17,7 +17,10 @@ import "./TrafficPage.css";
 export default function TrafficPage({
   emergencies = [],
   ambulances = [],
+  hospitals = [],
   selectedRoute = null,
+  routeMode = null,
+  onRouteModeChange = null,
   wsStatus = "connected",
   onViewRoute = null,
   onNavigate = null,
@@ -32,11 +35,15 @@ export default function TrafficPage({
 
   // Active Dispatched Emergency
   const activeEmergency = emergencies.find((e) =>
-    ["DISPATCHED", "ASSIGNED", "EN_ROUTE"].includes(e.status)
+    ["DISPATCHED", "ASSIGNED", "EN_ROUTE", "AT_SCENE", "TRANSPORTING"].includes(e.status)
   );
   const activeAmbulance = ambulances.find((a) =>
-    ["DISPATCHED", "ASSIGNED", "EN_ROUTE"].includes(a.status)
+    ["DISPATCHED", "ASSIGNED", "EN_ROUTE", "AT_SCENE", "TRANSPORTING"].includes(a.status)
   );
+  const targetHospitalName =
+    hospitals.find((h) => h.id === activeEmergency?.hospital_id)?.name ||
+    hospitals[0]?.name ||
+    "Partner Trauma Hospital";
 
   // Fetch Intersections & Corridors
   const fetchTrafficData = useCallback(async () => {
@@ -311,13 +318,17 @@ export default function TrafficPage({
       </div>
 
       {/* ALTERNATIVE ROUTE COMPARISON (Shown during active emergency) */}
-      {activeEmergency && (
+      {activeEmergency && (selectedRoute?.candidates || selectedRoute?.route_geometry?.candidates) && (
         <RouteComparisonPanel
-          activeRouteType={selectedRoute?.selected_strategy || "CONGESTION_AWARE"}
-          onRouteChange={() => {
-            handleRecalculateRoute(activeEmergency.id);
+          activeRouteType={routeMode || selectedRoute?.selected_strategy || selectedRoute?.route_geometry?.selected_candidate || "CONGESTION_AWARE"}
+          onRouteChange={(newMode) => {
+            if (onRouteModeChange) {
+              onRouteModeChange(newMode);
+            } else {
+              handleRecalculateRoute(activeEmergency.id);
+            }
           }}
-          targetHospitalName={selectedRoute?.hospital_name || "SPARSH RR Nagar"}
+          targetHospitalName={targetHospitalName}
           candidates={selectedRoute?.candidates || selectedRoute?.route_geometry?.candidates}
         />
       )}
