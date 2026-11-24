@@ -17,9 +17,6 @@ import {
   Sliders,
   CheckCircle2,
   ShieldAlert,
-  Ambulance,
-  Eye,
-  EyeOff,
 } from "lucide-react";
 import { playEmergencyAlert, playDispatchChime } from "../utils/sound";
 import { sernApi } from "../services/api";
@@ -96,7 +93,7 @@ function MapController({ center, zoom, followVehicle, vehiclePos }) {
     if (followVehicle && vehiclePos && vehiclePos[0] && vehiclePos[1]) {
       map.panTo(vehiclePos, { animate: true, duration: 0.5 });
     } else if (center && center[0] && center[1]) {
-      map.setView(center, zoom || 14, { animate: true });
+      map.setView(center, zoom || 12, { animate: true });
     }
   }, [center, zoom, followVehicle, vehiclePos, map]);
 
@@ -135,20 +132,16 @@ function distanceInMeters(lat1, lon1, lat2, lon2) {
 export default function EmergencyMap({
   ambulances = [],
   accidents = [],
-  emergencies = [],
   hospitals = [],
   intersections = [],
   selectedRoute = null,
-  activeCenter = [12.9180, 77.5160],
+  activeCenter = [12.9716, 77.5946],
   onSelectAccident = null,
   onSelectAmbulance = null,
   onEmergencyArrived = null,
 }) {
   // Route selection mode: "CONGESTION_AWARE" (default) | "SHORTEST" | "FASTEST"
   const [routeMode, setRouteMode] = useState("CONGESTION_AWARE");
-
-  // Manual Preview Override (for demonstration / testing before an accident is created)
-  const [manualPreviewActive, setManualPreviewActive] = useState(false);
 
   // Live Navigation State
   const [isNavigating, setIsNavigating] = useState(false);
@@ -219,16 +212,31 @@ export default function EmergencyMap({
     return nearest;
   }, [activeAccident, ambulances]);
 
-  // 4. Critical Gate: Is an Ambulance Assigned / Active Route Dispatched?
-  // User Requirement: "when some first login only map shown not any live red telemetry it will after assign the ambulance only show the ambulance on map and nearest ambulance on it"
+  // 4. Strict Condition: Is an Ambulance Actively Assigned & En Route?
+  // Only true when an ambulance has been assigned to an active emergency and route is loaded.
+  // When false: Pure Bengaluru fleet overview map (No HUD, No route polylines, No comparison table).
   const isCorridorActive = useMemo(() => {
-    const hasEmergencyRoute = Boolean(selectedRoute && (selectedRoute.route_geometry || selectedRoute.id));
-    const hasActiveUnit = Boolean(activeDispatchedAmb);
-    const hasActiveEmergencyInDb = emergencies.some((e) =>
-      ["DISPATCHED", "ASSIGNED", "EN_ROUTE"].includes(e.status)
+    const hasDispatchedAmb = Boolean(
+      activeDispatchedAmb &&
+      ["DISPATCHED", "ASSIGNED", "EN_ROUTE"].includes(activeDispatchedAmb.status)
     );
-    return hasEmergencyRoute || hasActiveUnit || hasActiveEmergencyInDb || manualPreviewActive;
-  }, [selectedRoute, activeDispatchedAmb, emergencies, manualPreviewActive]);
+    const hasRoute = Boolean(selectedRoute && (selectedRoute.route_geometry || selectedRoute.id));
+    return hasDispatchedAmb && hasRoute;
+  }, [activeDispatchedAmb, selectedRoute]);
+
+  // Dynamic Map Center & Zoom:
+  // When idle/standby: [12.9716, 77.5946] (Bengaluru center) at zoom 12 (showing all of Bengaluru)
+  // When corridor is active: [12.9180, 77.5160] (RR Nagar Corridor) at zoom 14
+  const mapCenter = useMemo(() => {
+    if (isCorridorActive) {
+      return [12.9180, 77.5160];
+    }
+    return activeCenter || [12.9716, 77.5946];
+  }, [isCorridorActive, activeCenter]);
+
+  const mapZoom = useMemo(() => {
+    return isCorridorActive ? 14 : 12;
+  }, [isCorridorActive]);
 
   // Compute active route points based on selection
   const routePoints = useMemo(() => {
@@ -277,7 +285,7 @@ export default function EmergencyMap({
     return { totalDist: total, segments: segs };
   }, [routePoints]);
 
-  // Auto-start or reset navigation when route changes
+  // Start navigation simulation once an ambulance is assigned
   useEffect(() => {
     if (!isCorridorActive) {
       loadedRouteIdRef.current = null;
@@ -297,7 +305,7 @@ export default function EmergencyMap({
         setManualSignalOverrides({ 1: null, 2: null, 3: null });
         setNavProgress(0);
         setIsNavigating(true);
-      }, 50);
+      }, 100);
       return () => clearTimeout(t);
     }
   }, [isCorridorActive, selectedRoute, routePoints.length]);
@@ -394,7 +402,7 @@ export default function EmergencyMap({
   }, [soundEnabled, activeDispatchedAmb, routePoints, onEmergencyArrived, selectedRoute]);
 
   // Turn-by-Turn GPS Animation Loop:
-  // Full trip duration calibrated to ~24 seconds at 1x (or ~12s at 2x) for optimal live demonstration
+  // Full trip duration calibrated to ~24 seconds at 1x (or ~12s at 2x) for optimal demonstration
   useEffect(() => {
     if (!isNavigating || routeMetrics.totalDist === 0) {
       lastTickTimeRef.current = null;
@@ -922,62 +930,38 @@ export default function EmergencyMap({
               }} />
               <div>
                 <strong style={{ fontSize: "12px", color: "#f8fafc", display: "block" }}>
-                  Fleet Standby & Live GPS Fleet Observer
+                  Bengaluru Fleet Standby & Incident Monitoring
                 </strong>
                 <span style={{ fontSize: "11px", color: "#94a3b8" }}>
                   {nearestAmbulance && activeAccident
-                    ? `⚠️ Incident reported at RNSIT · Nearest ambulance: ${nearestAmbulance.registration_number} (${nearestAmbulance.distanceKm} km away)`
-                    : `${ambulances.length || 6} Ambulances online · Standby for incident validation and dispatch`}
+                    ? `⚠️ Collision candidate reported · Nearest unit: ${nearestAmbulance.registration_number} (${nearestAmbulance.distanceKm} km away)`
+                    : `${ambulances.length || 6} Ambulances stationed across Bengaluru · Standby for operator dispatch`}
                 </span>
               </div>
             </div>
 
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              {activeAccident && (
-                <button
-                  onClick={() => {
-                    if (onSelectAccident) onSelectAccident(activeAccident);
-                  }}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "5px",
-                    padding: "6px 12px",
-                    background: "#2563eb",
-                    border: "none",
-                    borderRadius: "6px",
-                    color: "white",
-                    fontSize: "11px",
-                    fontWeight: "bold",
-                    cursor: "pointer"
-                  }}
-                >
-                  <Ambulance size={13} />
-                  Dispatch Nearest Unit
-                </button>
-              )}
-
+            {activeAccident && (
               <button
-                onClick={() => setManualPreviewActive(true)}
-                title="Preview RNSIT Green Corridor Navigation"
+                onClick={() => {
+                  if (onSelectAccident) onSelectAccident(activeAccident);
+                }}
                 style={{
                   display: "flex",
                   alignItems: "center",
                   gap: "5px",
-                  padding: "6px 10px",
-                  background: "rgba(6, 182, 212, 0.15)",
-                  border: "1px solid #06b6d4",
+                  padding: "6px 12px",
+                  background: "#2563eb",
+                  border: "none",
                   borderRadius: "6px",
-                  color: "#38bdf8",
+                  color: "white",
                   fontSize: "11px",
                   fontWeight: "bold",
                   cursor: "pointer"
                 }}
               >
-                <Eye size={13} />
-                Preview Green Corridor
+                Validate & Dispatch
               </button>
-            </div>
+            )}
           </div>
         )}
 
@@ -1012,45 +996,18 @@ export default function EmergencyMap({
                   LIVE GPS TELEMETRY
                 </strong>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                <span
-                  style={{
-                    fontSize: "10px",
-                    padding: "2px 8px",
-                    borderRadius: "4px",
-                    background: isNavigating ? "#065f46" : navProgress >= 1.0 ? "#0284c7" : "#334155",
-                    color: isNavigating ? "#34d399" : "#ffffff",
-                    fontWeight: "bold",
-                  }}
-                >
-                  {isNavigating ? "NAVIGATING" : navProgress >= 1.0 ? "ARRIVED" : "STANDBY"}
-                </span>
-
-                {manualPreviewActive && (
-                  <button
-                    onClick={() => {
-                      setManualPreviewActive(false);
-                      setIsNavigating(false);
-                      setNavProgress(0);
-                    }}
-                    title="Close Preview & Return to Standby Map"
-                    style={{
-                      padding: "2px 6px",
-                      background: "rgba(239, 68, 68, 0.2)",
-                      border: "1px solid #ef4444",
-                      borderRadius: "4px",
-                      color: "#f87171",
-                      fontSize: "10px",
-                      cursor: "pointer",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "3px"
-                    }}
-                  >
-                    <EyeOff size={10} /> Exit
-                  </button>
-                )}
-              </div>
+              <span
+                style={{
+                  fontSize: "10px",
+                  padding: "2px 8px",
+                  borderRadius: "4px",
+                  background: isNavigating ? "#065f46" : navProgress >= 1.0 ? "#0284c7" : "#334155",
+                  color: isNavigating ? "#34d399" : "#ffffff",
+                  fontWeight: "bold",
+                }}
+              >
+                {isNavigating ? "NAVIGATING" : navProgress >= 1.0 ? "ARRIVED" : "STANDBY"}
+              </span>
             </div>
 
             {/* Real-Time Metrics Row */}
@@ -1367,16 +1324,16 @@ export default function EmergencyMap({
           </div>
         )}
 
-        {/* C. LEAFLET MAP CONTAINER WITH OPENSTREETMAP TILES (100% Free, No Watermark, No API Key Required) */}
+        {/* C. LEAFLET MAP CONTAINER WITH OPENSTREETMAP TILES (Bengaluru City Overview) */}
         <MapContainer
-          center={activeCenter || [12.9180, 77.5160]}
-          zoom={14}
+          center={mapCenter}
+          zoom={mapZoom}
           style={{ width: "100%", height: "100%" }}
           scrollWheelZoom={true}
         >
           <MapController
-            center={activeCenter || [12.9180, 77.5160]}
-            zoom={14}
+            center={mapCenter}
+            zoom={mapZoom}
             followVehicle={followVehicle}
             vehiclePos={vehicleState?.pos}
           />
@@ -1387,7 +1344,7 @@ export default function EmergencyMap({
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
 
-          {/* === 1. CORRIDOR & INCIDENT OVERLAYS (Active when an Emergency / Ambulance is Dispatched) === */}
+          {/* === 1. CORRIDOR & INCIDENT OVERLAYS (Active ONLY When an Ambulance is Dispatched) === */}
           {isCorridorActive && (
             <>
               {/* Origin Incident Marker: RNSIT Campus (matching Image 1) */}
@@ -1751,7 +1708,7 @@ export default function EmergencyMap({
             </Popup>
           </Marker>
 
-          {/* Additional Partner Hospitals from database */}
+          {/* Additional Partner Hospitals across Bengaluru from database */}
           {hospitals.map((hosp) => {
             if (Math.abs(hosp.latitude - 12.9355) < 0.002) return null; // Skip SPARSH RR Nagar duplicate
             return (

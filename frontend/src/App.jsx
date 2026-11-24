@@ -329,6 +329,8 @@ function App() {
       setAccidents([]);
       setEmergencies([]);
       setSelectedRoute(null);
+      activeRouteEmergencyIdRef.current = null;
+      setActiveMapCenter([12.9716, 77.5946]);
       await fetchData();
       alert("All dashboard metrics have been initialized to zero.");
     } catch (err) {
