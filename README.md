@@ -1,3 +1,6 @@
+<img width="1892" height="902" alt="image" src="https://github.com/user-attachments/assets/c2a55286-553b-4e23-a423-26a6591b78df" />
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/056434d6-571f-408e-a659-372509648f33" />
+
 # 🚑 SERN — Smart Emergency Response Network
 
 **AI-Powered Accident Detection and Intelligent Emergency Response**
