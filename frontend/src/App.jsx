@@ -8,8 +8,6 @@ import "./LoginPage.css";
 import ForgotPasswordPage from "./ForgotPasswordPage";
 import ProfilePage from "./ProfilePage";
 import "./ProfilePage.css";
-import ReportsPage from "./ReportsPage";
-import AnalyticsPage from "./AnalyticsPage";
 import EmergencyMap from "./components/EmergencyMap";
 import AccidentSimulatorModal from "./components/AccidentSimulatorModal";
 import AddAmbulanceModal from "./components/AddAmbulanceModal";
@@ -22,10 +20,10 @@ import { formatAiConfidence } from "./utils/confidence";
 
 import {
   Activity, AlertTriangle, Ambulance, Bell, Building2,
-  Car, Clock, LayoutDashboard, MapPin, Menu, Navigation,
-  ShieldCheck, Siren, Users, X, Sun, Moon, FileText,
-  TrendingUp, Play, Plus, RefreshCw, CheckCircle2,
-  Phone, Compass, ShieldAlert, LogOut
+  Car, Clock, LayoutDashboard, MapPin, Menu,
+  ShieldCheck, Siren, Users, X, Sun, Moon,
+  Play, Plus, RefreshCw, CheckCircle2,
+  Phone, Compass, ShieldAlert, LogOut, RotateCcw
 } from "lucide-react";
 import "./App.css";
 
@@ -35,9 +33,6 @@ const menuItems = [
   { name: "Ambulances", icon: Ambulance },
   { name: "Emergency History", icon: Clock },
   { name: "Hospitals", icon: Building2 },
-  { name: "Traffic", icon: Car },
-  { name: "Reports", icon: FileText },
-  { name: "Analytics", icon: TrendingUp },
   { name: "Profile", icon: Users },
 ];
 
@@ -141,10 +136,13 @@ function App() {
       if (ambRes.status === "fulfilled") setAmbulances(ambRes.value);
       if (emRes.status === "fulfilled") {
         setEmergencies(emRes.value);
-        // Automatically load route for active emergency only if not already loaded
+        // Only load route if an emergency is actively dispatched/en route
         const activeEm = emRes.value.find(e => ['DISPATCHED', 'ASSIGNED', 'EN_ROUTE'].includes(e.status));
         if (activeEm && activeRouteEmergencyIdRef.current !== activeEm.id) {
           handleViewRoute(activeEm.id, true);
+        } else if (!activeEm) {
+          setSelectedRoute(null);
+          activeRouteEmergencyIdRef.current = null;
         }
       }
       if (hospRes.status === "fulfilled") setHospitals(hospRes.value);
@@ -207,6 +205,11 @@ function App() {
           setNotifications((prev) => [data, ...prev.filter((n) => n.id !== data.id)]);
         } else if (type === "ROUTE_UPDATED") {
           setSelectedRoute(data);
+        } else if (type === "DASHBOARD_RESET") {
+          setAccidents([]);
+          setEmergencies([]);
+          setSelectedRoute(null);
+          fetchData();
         }
       },
       (status) => {
@@ -224,7 +227,17 @@ function App() {
     };
   }, [fetchData, handleViewRoute]);
 
-  // Accident Validation Action
+  // Resilient Polling Fallback: whenever WebSocket is disconnected, poll every 2.5s
+  useEffect(() => {
+    if (wsStatus !== "connected") {
+      const pollInterval = setInterval(() => {
+        fetchData();
+      }, 2500);
+      return () => clearInterval(pollInterval);
+    }
+  }, [wsStatus, fetchData]);
+
+  // Accident Validation Action (Verify / Reject)
   const handleValidateAccident = async (accidentId, confirmed) => {
     try {
       const notes = confirmed
@@ -238,6 +251,15 @@ function App() {
         validation_notes: notes,
         auto_dispatch: confirmed
       });
+
+      // Immediately update local state so incident status on pending alert reflects verify or reject
+      setAccidents((prev) =>
+        prev.map((a) =>
+          a.id === accidentId
+            ? { ...a, validation_status: confirmed ? "CONFIRMED" : "REJECTED", validation_notes: notes }
+            : a
+        )
+      );
 
       if (valRes?.emergency?.id) {
         await handleViewRoute(valRes.emergency.id, true);
@@ -264,6 +286,8 @@ function App() {
   // Update emergency operational status
   const handleUpdateEmergencyStatus = async (emergencyId, nextStatus) => {
     try {
+      const em = emergencies.find(e => e.id === emergencyId);
+      if (em && em.status === nextStatus) return;
       await sernApi.updateEmergencyStatus(emergencyId, nextStatus, `Updated to ${nextStatus} by operator.`);
       await fetchData();
     } catch (err) {
@@ -279,6 +303,23 @@ function App() {
       alert("Destination hospital assigned and arrival alert broadcasted.");
     } catch (err) {
       alert(`Failed to assign hospital: ${err.message}`);
+    }
+  };
+
+  // Reset all dashboard incident counters, emergencies, and routes to ZERO
+  const handleResetDashboard = async () => {
+    try {
+      setLoadingData(true);
+      await sernApi.resetDashboard();
+      setAccidents([]);
+      setEmergencies([]);
+      setSelectedRoute(null);
+      await fetchData();
+      alert("All dashboard metrics have been initialized to zero.");
+    } catch (err) {
+      alert(`Failed to reset metrics: ${err.message}`);
+    } finally {
+      setLoadingData(false);
     }
   };
 
@@ -349,37 +390,19 @@ function App() {
     },
   ];
 
-  // Auth pages view routing
+  // Auth pages view routing with strict authentication guard
   if (showLanding) {
     return (
       <LandingPage
         onEnterDashboard={() => {
           setShowLanding(false);
-          setShowLogin(true);
-        }}
-      />
-    );
-  }
-  if (showLogin) {
-    return (
-      <LoginPage
-        onLogin={(user) => {
-          if (user) {
-            setCurrentUser(user);
+          if (!currentUser) {
+            setShowLogin(true);
           }
-          setShowLogin(false);
         }}
-        onBack={() => {
-          setShowLogin(false);
-          setShowLanding(true);
-        }}
-        onRegister={() => {
-          setShowLogin(false);
+        onSignUp={() => {
+          setShowLanding(false);
           setShowRegister(true);
-        }}
-        onForgotPassword={() => {
-          setShowLogin(false);
-          setShowForgotPassword(true);
         }}
       />
     );
@@ -387,10 +410,20 @@ function App() {
   if (showRegister) {
     return (
       <RegisterPage
-        onRegister={(newUser) => {
+        onRegister={async (newUser) => {
           if (newUser) {
             setCurrentUser(newUser);
           }
+          // On new registration, initialize all dashboard metrics to ZERO
+          try {
+            await sernApi.resetDashboard();
+          } catch (e) {
+            console.debug("Reset on register:", e);
+          }
+          setAccidents([]);
+          setEmergencies([]);
+          setSelectedRoute(null);
+          await fetchData();
           setShowRegister(false);
         }}
         onBack={() => {
@@ -406,6 +439,40 @@ function App() {
         onBack={() => {
           setShowForgotPassword(false);
           setShowLogin(true);
+        }}
+      />
+    );
+  }
+  if (!currentUser || showLogin) {
+    return (
+      <LoginPage
+        onLogin={async (user) => {
+          if (user) {
+            setCurrentUser(user);
+          }
+          // On new login, initialize all dashboard metrics to ZERO
+          try {
+            await sernApi.resetDashboard();
+          } catch (e) {
+            console.debug("Reset on login:", e);
+          }
+          setAccidents([]);
+          setEmergencies([]);
+          setSelectedRoute(null);
+          await fetchData();
+          setShowLogin(false);
+        }}
+        onBack={() => {
+          setShowLogin(false);
+          setShowLanding(true);
+        }}
+        onRegister={() => {
+          setShowLogin(false);
+          setShowRegister(true);
+        }}
+        onForgotPassword={() => {
+          setShowLogin(false);
+          setShowForgotPassword(true);
         }}
       />
     );
@@ -512,11 +579,11 @@ function App() {
               Sync
             </button>
 
-            <div className="system-status" title={`WebSocket Channel: ${wsStatus} · System: ${systemHealth.status}`}>
+            <div className="system-status" title={`Channel: ${wsStatus === 'connected' ? 'WebSocket (Real-Time Push)' : 'Resilient Polling Fallback (2.5s)'} · System: ${systemHealth.status}`}>
               <span className="status-dot" style={{
-                background: wsStatus === "connected" ? "#10b981" : "#f59e0b"
+                background: wsStatus === "connected" ? "#10b981" : "#06b6d4"
               }}></span>
-              {wsStatus === "connected" ? "Live WS (0ms Latency)" : "Connecting WS..."}
+              {wsStatus === "connected" ? "Live WS (Push)" : "Live (Polling Fallback)"}
             </div>
 
             <button
@@ -538,7 +605,7 @@ function App() {
 
             <div className="profile" onClick={() => setActivePage("Profile")} style={{ cursor: "pointer" }} title={currentUser?.verificationBadge || "View / Edit Profile"}>
               <div className="profile-avatar">
-                {authService.getInitials(currentUser?.name)}
+                {authService?.getInitials ? authService.getInitials(currentUser?.name) : (currentUser?.name?.slice(0, 2)?.toUpperCase() || "AD")}
               </div>
               <div className="profile-info">
                 <strong>{currentUser?.name || "System Admin"}</strong>
@@ -551,7 +618,7 @@ function App() {
             <button
               onClick={() => {
                 authService.logout();
-                setCurrentUser(authService.getCurrentUser());
+                setCurrentUser(null);
                 setShowLanding(true);
               }}
               className="btn-secondary"
@@ -590,13 +657,33 @@ function App() {
                   : "Real-time vehicle telemetry classification, nearest-ambulance dispatch & hospital alerts."}
               </p>
             </div>
-            <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+            <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
               <button
                 className="btn-simulate"
                 onClick={() => setShowSimulator(true)}
               >
                 <Play size={16} />
                 Simulate Accident (Run ML)
+              </button>
+              <button
+                onClick={handleResetDashboard}
+                title="Initialize all incident metrics to zero"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  padding: "8px 14px",
+                  background: "rgba(30, 41, 59, 0.7)",
+                  border: "1px solid #334155",
+                  borderRadius: "8px",
+                  color: "#94a3b8",
+                  fontSize: "12px",
+                  fontWeight: "bold",
+                  cursor: "pointer"
+                }}
+              >
+                <RotateCcw size={14} />
+                Reset to Zero
               </button>
               <div className="live-indicator">
                 <span className="status-dot"></span> LIVE DISPATCH · WS SYNCED
@@ -695,7 +782,7 @@ function App() {
                             <div className="alert-top">
                               <strong>Incident #{alert.id} ({alert.vehicle_size || 'car'})</strong>
                               <span className="severity critical">
-                                {formatAiConfidence(alert.accident_probability, alert.model_threshold).percentage}% AI Match
+                                {formatAiConfidence(alert.accident_probability, alert.model_threshold).percentage}% ML Probability
                               </span>
                             </div>
                             <p>
@@ -761,25 +848,6 @@ function App() {
                       </button>
                     </div>
                   ))}
-                </div>
-
-                <div className="panel">
-                  <div className="panel-heading">
-                    <div>
-                      <h3>Traffic Signal Green Corridors</h3>
-                      <p>Integration boundary for intelligent routing</p>
-                    </div>
-                    <Navigation size={22} color="#fbbf24" />
-                  </div>
-                  <div className="traffic-row">
-                    <span>MG Road Central Corridor</span><strong className="green-text">● Green Preemption</strong>
-                  </div>
-                  <div className="traffic-row">
-                    <span>Indiranagar 100ft Junction</span><strong className="yellow-text">● Traffic Monitored</strong>
-                  </div>
-                  <div className="traffic-row">
-                    <span>Whitefield IT Corridor</span><strong className="green-text">● Green Preemption</strong>
-                  </div>
                 </div>
               </section>
             </>
@@ -1026,12 +1094,20 @@ function App() {
                             )}
 
                             {em.status === "DISPATCHED" && (
-                              <button
-                                className="btn-primary-sm"
-                                onClick={() => handleUpdateEmergencyStatus(em.id, "EN_ROUTE")}
-                              >
-                                Mark En Route →
-                              </button>
+                              <>
+                                <button
+                                  className="btn-primary-sm"
+                                  onClick={() => handleUpdateEmergencyStatus(em.id, "EN_ROUTE")}
+                                >
+                                  Mark En Route →
+                                </button>
+                                <button
+                                  className="btn-primary-sm"
+                                  onClick={() => handleUpdateEmergencyStatus(em.id, "AT_SCENE")}
+                                >
+                                  Mark Arrived at Scene →
+                                </button>
+                              </>
                             )}
 
                             {em.status === "EN_ROUTE" && (
@@ -1149,61 +1225,6 @@ function App() {
                 })}
               </div>
             </section>
-          ) : activePage === "Traffic" ? (
-            /* TRAFFIC PAGE */
-            <section className="panel traffic-page">
-              <div className="panel-heading">
-                <div>
-                  <h3>Intelligent Traffic & Green Corridor Boundary</h3>
-                  <p>Member 4 Integration Boundary: Live intersection status and priority preemption</p>
-                </div>
-                <Navigation size={25} color="#fbbf24" />
-              </div>
-
-              <div className="traffic-cards" style={{ marginTop: "16px" }}>
-                <div className="traffic-card">
-                  <h3>MG Road Central Corridor</h3>
-                  <span className="green-text">● Green Light Preemption Active</span>
-                  <p>Congestion Index: 18% (Low)</p>
-                  <small>Ambulance ETA to Victoria Hospital: 4.2 mins</small>
-                </div>
-
-                <div className="traffic-card">
-                  <h3>Indiranagar 100ft Junction</h3>
-                  <span className="yellow-text">● Moderate Flow</span>
-                  <p>Congestion Index: 52% (Medium)</p>
-                  <small>OSM Pathfinding: Dynamic rerouting available</small>
-                </div>
-
-                <div className="traffic-card">
-                  <h3>Whitefield Tech Park Flyover</h3>
-                  <span className="green-text">● Priority Corridor</span>
-                  <p>Congestion Index: 24% (Low)</p>
-                  <small>Ambulance ETA to Manipal Hospital: 6.8 mins</small>
-                </div>
-
-                <div className="traffic-card">
-                  <h3>Koramangala Sony World Signal</h3>
-                  <span className="red-text">● Congested Traffic</span>
-                  <p>Congestion Index: 78% (Heavy)</p>
-                  <small>Green corridor preemption queued upon dispatch</small>
-                </div>
-              </div>
-            </section>
-          ) : activePage === "Reports" ? (
-            <ReportsPage
-              accidents={accidents}
-              emergencies={emergencies}
-              ambulances={ambulances}
-              hospitals={hospitals}
-            />
-          ) : activePage === "Analytics" ? (
-            <AnalyticsPage
-              accidents={accidents}
-              emergencies={emergencies}
-              ambulances={ambulances}
-              hospitals={hospitals}
-            />
           ) : activePage === "Profile" ? (
             <ProfilePage
               currentUser={currentUser}

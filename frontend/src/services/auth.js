@@ -1,19 +1,8 @@
-// SERN Client-side Authentication, Verification & 2-Factor OTP Manager
+// SERN Personnel Authentication & Management Service
+import { sernApi } from "./api";
 
 const STORAGE_KEY_USER = "sern_active_user";
 const STORAGE_KEY_USERS_DB = "sern_registered_users";
-const STORAGE_KEY_PENDING_OTP = "sern_pending_otp";
-
-// Default seed administrative user
-const DEFAULT_USER = {
-  name: "System Admin",
-  email: "admin@sern.com",
-  phone: "9876543210",
-  role: "Administrator",
-  isVerified: true,
-  verificationBadge: "👑 Authorized Dispatch Commander",
-  credentialId: "ADMIN-HQ-2026"
-};
 
 export const authService = {
   // Validate RFC-compliant email address format
@@ -32,62 +21,22 @@ export const authService = {
     return { valid: true, sanitized: trimmed.toLowerCase() };
   },
 
-  // Validate 10-digit mobile number format
+  // Get user initials for display avatar (e.g. "John Doe" -> "JD", "Admin" -> "AD")
+  getInitials: (name) => {
+    if (!name || typeof name !== "string") return "AD";
+    const parts = name.trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return "AD";
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  },
+
+  // Validate mobile number format (optional in profile or fallback)
   validateMobile: (phone) => {
-    if (!phone || typeof phone !== "string") {
-      return { valid: false, error: "Mobile number is required." };
-    }
-    const cleaned = phone.replace(/[\s\-()]/g, "");
-    // Accepts 10 digits starting with 6-9, or +91 followed by 10 digits
-    const phoneRegex = /^(\+91)?[6-9]\d{9}$/;
-    if (!phoneRegex.test(cleaned)) {
-      return {
-        valid: false,
-        error: "Invalid mobile number! Must be a valid 10-digit phone number (e.g. 9876543210)."
-      };
-    }
-    const standard10 = cleaned.slice(-10);
-    return { valid: true, sanitized: standard10 };
-  },
-
-  // Generate a secure 6-digit OTP code for 2-Factor Authentication
-  generateOTP: (recipient) => {
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiry = Date.now() + 5 * 60 * 1000; // 5 minutes validity
-    const otpData = {
-      otp,
-      recipient,
-      expiresAt: expiry
-    };
-    try {
-      sessionStorage.setItem(STORAGE_KEY_PENDING_OTP, JSON.stringify(otpData));
-    } catch {
-      // Fallback
-    }
-    return otpData;
-  },
-
-  // Verify entered OTP
-  verifyOTP: (enteredOtp) => {
-    try {
-      const stored = sessionStorage.getItem(STORAGE_KEY_PENDING_OTP);
-      if (!stored) {
-        return { verified: false, error: "OTP expired or not found. Please request a new code." };
-      }
-      const otpData = JSON.parse(stored);
-      if (Date.now() > otpData.expiresAt) {
-        sessionStorage.removeItem(STORAGE_KEY_PENDING_OTP);
-        return { verified: false, error: "OTP has expired. Please click 'Resend Code'." };
-      }
-      if (otpData.otp !== (enteredOtp || "").trim()) {
-        return { verified: false, error: "Invalid OTP code! Please enter the exact 6-digit code sent to your mobile." };
-      }
-      sessionStorage.removeItem(STORAGE_KEY_PENDING_OTP);
-      return { verified: true };
-    } catch (e) {
-      console.warn("OTP verification error:", e);
-      return { verified: false, error: "Failed to verify OTP." };
-    }
+    if (!phone) return { valid: true, sanitized: "" };
+    const cleaned = String(phone).replace(/\D/g, "");
+    if (cleaned.length === 10) return { valid: true, sanitized: cleaned };
+    if (cleaned.length === 12 && cleaned.startsWith("91")) return { valid: true, sanitized: cleaned.slice(2) };
+    return { valid: false, error: "Please enter a valid 10-digit mobile number." };
   },
 
   // Determine official verification badge based on role and credential
@@ -115,19 +64,23 @@ export const authService = {
     } catch (e) {
       console.warn("Failed to load user session:", e);
     }
-    return DEFAULT_USER;
+    return null;
   },
 
   // Save active session
   setCurrentUser: (user) => {
     try {
-      localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(user));
+      if (user) {
+        localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(user));
+      } else {
+        localStorage.removeItem(STORAGE_KEY_USER);
+      }
     } catch (e) {
       console.warn("Failed to save user session:", e);
     }
   },
 
-  // Get all registered users
+  // Get all registered users from local cache
   getRegisteredUsers: () => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY_USERS_DB);
@@ -137,27 +90,57 @@ export const authService = {
     } catch (e) {
       console.warn("Failed to load users DB:", e);
     }
-    return [DEFAULT_USER];
+    return [];
   },
 
-  // Register a new user with verified credentials
-  register: ({ name, email, phone, role, password, credentialId }) => {
+  // Check if an email is already registered
+  isEmailRegistered: (email) => {
+    if (!email) return false;
+    const users = authService.getRegisteredUsers();
+    return users.some(u => u.email.toLowerCase() === email.trim().toLowerCase());
+  },
+
+  // Register a new user with email and password
+  register: async ({ name, email, role, password, credentialId }) => {
     const emailVal = authService.validateEmail(email);
     if (!emailVal.valid) throw new Error(emailVal.error);
 
-    const phoneVal = authService.validateMobile(phone);
-    if (!phoneVal.valid) throw new Error(phoneVal.error);
-
-    const users = authService.getRegisteredUsers();
-    const existingIndex = users.findIndex(u => u.email.toLowerCase() === emailVal.sanitized);
+    if (!name || name.trim().length < 2) {
+      throw new Error("Full name is required (minimum 2 characters).");
+    }
+    if (!password || password.length < 6) {
+      throw new Error("Password must be at least 6 characters.");
+    }
 
     const badge = authService.getVerificationBadge(role, credentialId);
 
+    let serverUser = null;
+    let token = null;
+
+    try {
+      const res = await sernApi.register({
+        name: name.trim(),
+        email: emailVal.sanitized,
+        password,
+        role: role || "Ambulance Staff",
+        credential_id: credentialId ? credentialId.trim() : ""
+      });
+      if (res && res.user) {
+        serverUser = res.user;
+        token = res.token;
+      }
+    } catch (err) {
+      console.warn("Backend registration notice:", err);
+      if (err.message && err.message.toLowerCase().includes("already registered")) {
+        throw new Error("An account is already registered with this email. Please sign in instead.", { cause: err });
+      }
+    }
+
     const newUser = {
+      id: serverUser?.id || Date.now(),
       name: name.trim(),
       email: emailVal.sanitized,
-      phone: phoneVal.sanitized,
-      role: role || "Public Citizen",
+      role: role || "Ambulance Staff",
       password: password,
       credentialId: credentialId ? credentialId.trim() : "",
       isVerified: true,
@@ -165,6 +148,8 @@ export const authService = {
       registeredAt: new Date().toISOString()
     };
 
+    const users = authService.getRegisteredUsers();
+    const existingIndex = users.findIndex(u => u.email.toLowerCase() === emailVal.sanitized);
     if (existingIndex >= 0) {
       users[existingIndex] = newUser;
     } else {
@@ -174,6 +159,11 @@ export const authService = {
     try {
       localStorage.setItem(STORAGE_KEY_USERS_DB, JSON.stringify(users));
       localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(newUser));
+      if (token) {
+        localStorage.setItem("sern_auth_token", token);
+      } else {
+        localStorage.setItem("sern_auth_token", "sern-local-verified-token");
+      }
     } catch (e) {
       console.warn("Failed to persist registration:", e);
     }
@@ -181,94 +171,90 @@ export const authService = {
     return newUser;
   },
 
-  // Login with role authorization and name persistence
-  login: ({ name, email, phone, password, role, credentialId }) => {
+  // Login with email and password
+  login: async ({ email, password }) => {
     const emailVal = authService.validateEmail(email);
     if (!emailVal.valid) throw new Error(emailVal.error);
 
-    if (phone) {
-      const phoneVal = authService.validateMobile(phone);
-      if (!phoneVal.valid) throw new Error(phoneVal.error);
+    if (!password) {
+      throw new Error("Please enter your password.");
     }
 
-    const users = authService.getRegisteredUsers();
-    const foundIndex = users.findIndex(u => u.email.toLowerCase() === emailVal.sanitized);
-    const found = foundIndex >= 0 ? users[foundIndex] : null;
-
-    const finalRole = role || (found ? found.role : "Administrator");
-    const badge = authService.getVerificationBadge(finalRole, credentialId || (found ? found.credentialId : ""));
-
-    const resolvedName = (name && name.trim()) || (found && found.name) || email.split("@")[0].replace(/[._-]/g, " ").replace(/\b\w/g, l => l.toUpperCase()) || "Emergency Responder";
-
-    const loggedInUser = found
-      ? {
-          ...found,
-          name: resolvedName,
-          role: finalRole,
-          phone: phone ? phone.trim() : found.phone,
-          isVerified: true,
-          verificationBadge: badge,
-          credentialId: credentialId || found.credentialId || ""
-        }
-      : {
-          name: resolvedName,
-          email: emailVal.sanitized,
-          phone: phone ? phone.trim() : "9876543210",
-          role: finalRole,
-          password: password,
-          credentialId: credentialId || "",
-          isVerified: true,
-          verificationBadge: badge,
-          registeredAt: new Date().toISOString()
-        };
-
-    if (foundIndex >= 0) {
-      users[foundIndex] = loggedInUser;
-    } else {
-      users.push(loggedInUser);
-    }
-
+    // 1. Try Backend Authentication
     try {
-      localStorage.setItem(STORAGE_KEY_USERS_DB, JSON.stringify(users));
-      localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(loggedInUser));
-    } catch (e) {
-      console.warn("Failed to save login session:", e);
+      const res = await sernApi.login({
+        email: emailVal.sanitized,
+        password
+      });
+
+      if (res && res.user) {
+        const badge = authService.getVerificationBadge(res.user.role, res.user.credential_id);
+        const loggedInUser = {
+          ...res.user,
+          isVerified: true,
+          verificationBadge: badge
+        };
+        localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(loggedInUser));
+        if (res.token) {
+          localStorage.setItem("sern_auth_token", res.token);
+        }
+        return loggedInUser;
+      }
+    } catch (err) {
+      if (err.message && (err.message.includes("No account found") || err.message.includes("not found"))) {
+        throw new Error("No account found with this email. Please sign up first to create your personnel account.", { cause: err });
+      }
+      if (err.message && err.message.includes("Incorrect password")) {
+        throw err;
+      }
     }
 
-    return loggedInUser;
-  },
+    // 2. Client-side database check (enforces sign-up first requirement)
+    const users = authService.getRegisteredUsers();
+    const found = users.find(u => u.email.toLowerCase() === emailVal.sanitized);
 
-  // Update profile with validation
-  updateProfile: (updatedData) => {
-    if (updatedData.email) {
-      const emailVal = authService.validateEmail(updatedData.email);
-      if (!emailVal.valid) throw new Error(emailVal.error);
-      updatedData.email = emailVal.sanitized;
-    }
-    if (updatedData.phone) {
-      const phoneVal = authService.validateMobile(updatedData.phone);
-      if (!phoneVal.valid) throw new Error(phoneVal.error);
-      updatedData.phone = phoneVal.sanitized;
+    if (!found) {
+      throw new Error("No account found with this email. Please sign up first to create your personnel account.");
     }
 
-    const current = authService.getCurrentUser();
-    const badge = authService.getVerificationBadge(updatedData.role || current.role, updatedData.credentialId || current.credentialId);
+    if (found.password && found.password !== password) {
+      throw new Error("Incorrect password. Please verify your credentials and try again.");
+    }
 
-    const updated = {
-      ...current,
-      ...updatedData,
+    const badge = authService.getVerificationBadge(found.role, found.credentialId);
+    const loggedInUser = {
+      ...found,
+      isVerified: true,
       verificationBadge: badge
     };
 
+    localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(loggedInUser));
+    return loggedInUser;
+  },
+
+  // Update profile
+  updateProfile: ({ name, email, role, credentialId }) => {
+    const current = authService.getCurrentUser() || {};
+    const updated = {
+      ...current,
+      name: name || current.name,
+      email: email || current.email,
+      role: role || current.role,
+      credentialId: credentialId !== undefined ? credentialId : current.credentialId,
+      verificationBadge: authService.getVerificationBadge(role || current.role, credentialId !== undefined ? credentialId : current.credentialId)
+    };
     authService.setCurrentUser(updated);
 
     const users = authService.getRegisteredUsers();
-    const index = users.findIndex(u => u.email.toLowerCase() === updated.email.toLowerCase());
-    if (index >= 0) {
-      users[index] = { ...users[index], ...updated };
-      localStorage.setItem(STORAGE_KEY_USERS_DB, JSON.stringify(users));
+    const idx = users.findIndex(u => u.email.toLowerCase() === updated.email.toLowerCase());
+    if (idx >= 0) {
+      users[idx] = { ...users[idx], ...updated };
+      try {
+        localStorage.setItem(STORAGE_KEY_USERS_DB, JSON.stringify(users));
+      } catch (e) {
+        console.warn("Failed to persist user update:", e);
+      }
     }
-
     return updated;
   },
 
@@ -276,22 +262,9 @@ export const authService = {
   logout: () => {
     try {
       localStorage.removeItem(STORAGE_KEY_USER);
-      sessionStorage.removeItem(STORAGE_KEY_PENDING_OTP);
+      localStorage.removeItem("sern_auth_token");
     } catch (e) {
       console.warn("Logout error:", e);
     }
-  },
-
-  // Compute initials for avatar (e.g. "John Doe" -> "JD", "Alex Morgan" -> "AM")
-  getInitials: (name) => {
-    if (!name || typeof name !== "string") return "EM";
-    const parts = name.trim().split(/\s+/);
-    if (parts.length >= 2) {
-      return (parts[0][0] + parts[1][0]).toUpperCase();
-    }
-    if (parts[0].length >= 2) {
-      return parts[0].substring(0, 2).toUpperCase();
-    }
-    return parts[0].toUpperCase();
   }
 };

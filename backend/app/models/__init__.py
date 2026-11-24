@@ -5,6 +5,7 @@ from app.models.emergency import Emergency
 from app.models.assignment import Assignment
 from app.models.notification import Notification
 from app.models.route import RouteInfo
+from app.models.user import User
 
 __all__ = [
     "Accident",
@@ -14,5 +15,6 @@ __all__ = [
     "Assignment",
     "Notification",
     "RouteInfo",
+    "User",
 ]
 

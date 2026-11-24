@@ -8,7 +8,7 @@ import {
   HeartPulse
 } from "lucide-react";
 
-function LandingPage({ onEnterDashboard }) {
+function LandingPage({ onEnterDashboard, onSignUp }) {
   return (
     <div className="landing-page">
 
@@ -27,7 +27,7 @@ function LandingPage({ onEnterDashboard }) {
           <a href="#features">Features</a>
         </div>
 
-        <div>
+        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
           <button
             className="landing-login-btn"
             onClick={onEnterDashboard}
@@ -61,13 +61,20 @@ function LandingPage({ onEnterDashboard }) {
               style={{ background: "#0284c7", border: "none" }}
               onClick={onEnterDashboard}
             >
-              🛡️ Launch Emergency Command Center <ArrowRight size={19} />
+              🛡️ Personnel Sign In <ArrowRight size={19} />
+            </button>
+            <button
+              className="hero-btn"
+              style={{ background: "#0f172a", border: "1px solid #334155", color: "#f8fafc" }}
+              onClick={onSignUp || onEnterDashboard}
+            >
+              📝 New Personnel? Sign Up First
             </button>
           </div>
 
           <div className="hero-note">
             <Activity size={16} />
-            Two-Factor Verified · PostGIS Indexed · WebSockets Synced
+            Verified Email Credentials · PostGIS Indexed · WebSockets Synced
           </div>
         </div>
 

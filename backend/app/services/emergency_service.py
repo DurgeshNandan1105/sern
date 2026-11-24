@@ -14,7 +14,7 @@ logger = logging.getLogger("sern.emergencies")
 # Valid lifecycle state transitions for an emergency
 PERMITTED_EMERGENCY_TRANSITIONS = {
     "PENDING": {"DISPATCHED", "CANCELLED"},
-    "DISPATCHED": {"EN_ROUTE", "CANCELLED"},
+    "DISPATCHED": {"EN_ROUTE", "AT_SCENE", "CANCELLED"},
     "EN_ROUTE": {"AT_SCENE", "CANCELLED"},
     "AT_SCENE": {"TRANSPORTING", "COMPLETED", "CANCELLED"},
     "TRANSPORTING": {"COMPLETED", "CANCELLED"},

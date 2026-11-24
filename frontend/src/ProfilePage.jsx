@@ -58,7 +58,7 @@ function ProfilePage({ currentUser, onUpdateProfile }) {
     }
   };
 
-  const initials = authService.getInitials(profile.name);
+  const initials = authService?.getInitials ? authService.getInitials(profile?.name) : (profile?.name?.slice(0, 2)?.toUpperCase() || "AD");
 
   return (
     <div className="profile-page">

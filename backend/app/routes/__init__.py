@@ -6,6 +6,7 @@ from app.routes.hospitals import router as hospitals_router
 from app.routes.notifications import router as notifications_router
 from app.routes.routing import router as routing_router
 from app.routes.ws import router as ws_router
+from app.routes.auth import router as auth_router
 
 __all__ = [
     "health_router",
@@ -16,5 +17,6 @@ __all__ = [
     "notifications_router",
     "routing_router",
     "ws_router",
+    "auth_router",
 ]
 

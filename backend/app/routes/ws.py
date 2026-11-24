@@ -7,7 +7,23 @@ logger = logging.getLogger("sern.routes.ws")
 router = APIRouter(tags=["Real-Time WebSockets"])
 
 
+@router.get("/ws")
+def websocket_http_probe():
+    """
+    HTTP probe for the WebSocket channel. Prevents HTTP 400 Bad Request
+    when proxies or health monitors ping the /ws endpoint using HTTP GET.
+    """
+    return {
+        "status": "online",
+        "channel": "Real-Time Emergency Stream",
+        "protocol": "websocket",
+        "active_connections": len(ws_manager.active_connections),
+        "connect_url": "/api/ws"
+    }
+
+
 @router.websocket("/ws")
+@router.websocket("/ws/")
 async def websocket_emergency_feed(websocket: WebSocket):
     """
     Real-time push channel for zero-latency accident alerts, ambulance telemetry,

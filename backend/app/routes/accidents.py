@@ -131,3 +131,46 @@ def validate_accident(
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
+
+@router.post("/reset", status_code=status.HTTP_200_OK)
+def reset_all_incidents(db: Session = Depends(get_db)):
+    """
+    Reset all accidents, emergencies, assignments, and routes to zero for a clean new dashboard session.
+    """
+    from app.models.emergency import Emergency
+    from app.models.assignment import Assignment
+    from app.models.route import RouteInfo
+    from app.models.notification import Notification
+    from app.models.ambulance import Ambulance
+
+    try:
+        db.query(RouteInfo).delete()
+        db.query(Notification).delete()
+        db.query(Assignment).delete()
+        db.query(Emergency).delete()
+        db.query(Accident).delete()
+
+        # Reset all fleet ambulances back to AVAILABLE
+        ambulances = db.query(Ambulance).all()
+        for amb in ambulances:
+            amb.status = "AVAILABLE"
+
+        db.commit()
+
+        ws_manager.broadcast_sync("DASHBOARD_RESET", {
+            "message": "All dashboard incidents, emergencies, and metrics reset to zero."
+        })
+
+        return {
+            "success": True,
+            "message": "Dashboard successfully initialized to zero values.",
+            "incidents_count": 0,
+            "emergencies_count": 0
+        }
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to reset dashboard: {str(exc)}"
+        )
+

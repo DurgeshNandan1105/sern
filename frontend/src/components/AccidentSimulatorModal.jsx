@@ -350,13 +350,13 @@ export default function AccidentSimulatorModal({ isOpen, onClose, onAccidentCrea
 
                 <div style={{ textAlign: "right" }}>
                   <span style={{ fontSize: "20px", fontWeight: "bold", color: formatAiConfidence(result.accident_probability, result.model_threshold).color }}>
-                    {formatAiConfidence(result.accident_probability, result.model_threshold).percentage}% Match
+                    {formatAiConfidence(result.accident_probability, result.model_threshold).percentage}% Probability
                   </span>
                   <p style={{ fontSize: "11px", color: "#94a3b8" }}>
                     {formatAiConfidence(result.accident_probability, result.model_threshold).label}
                   </p>
                   <p style={{ fontSize: "10px", color: "#64748b" }}>
-                    Threshold: {(result.model_threshold * 100).toFixed(1)}% · Raw: {(result.accident_probability * 100).toFixed(1)}%
+                    Decision Threshold: {(result.model_threshold * 100).toFixed(1)}%
                   </p>
                 </div>
               </div>

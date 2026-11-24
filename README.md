@@ -195,17 +195,27 @@ SERN is developed collaboratively by a five-member team:
    - Run the entire cluster with a single command: `docker-compose up -d`.
    - Includes PostGIS spatial database, Redis broker, FastAPI backend, and Nginx reverse proxy frontend.
 
+6. **Enterprise Role-Based Authentication & Session Security**:
+   - Secure Email/Password registration and login with bcrypt-hashed credentials and JWT authentication tokens.
+   - Strict role authorization for Ambulance Paramedics, Trauma Hospital Staff, System Dispatch Commanders, and Citizen Observers.
+   - Mandatory sign-up enforcement: unauthenticated visitors cannot access backend operations or bypass login.
+   - Automatic dashboard metric initialization to zero upon fresh login to ensure clean operational monitoring.
+
+7. **Calibrated ML Confidence Representation**:
+   - True machine learning model probability scores without artificial inflation, ensuring trustworthy emergency classification.
+
+8. **Resilient Emergency State Machine & Client-Side Error Boundary**:
+   - Strict lifecycle state transitions (`PENDING` → `DISPATCHED` → `AT_SCENE` → `TRANSPORTING` → `COMPLETED`).
+   - Top-level React `ErrorBoundary` protecting against unhandled runtime crashes with one-click reload and session reset.
+
 ## 🔮 Future Scope
 
-- Real-time vehicle sensor integration
-- Improved accident detection and severity estimation
-- OpenStreetMap-based road network routing
-- Live traffic-aware ambulance navigation
-- Green corridor coordination
-- Real-time ambulance tracking
-- Hospital availability integration
-- Secure role-based access and authentication
-- Deployment and large-scale performance testing
+- Real-time vehicle sensor hardware integration (OBD-II, CAN bus telemetry)
+- Advanced multi-class crash severity estimation
+- OpenStreetMap dynamic road-network routing with live congestion avoidance
+- Municipal green corridor traffic light preemption hardware integration
+- Multi-city distributed emergency clustering
+- High-volume stress testing and multi-region failover
 
 ## 📌 Project Information
 

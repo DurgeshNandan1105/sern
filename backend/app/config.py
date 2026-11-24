@@ -33,6 +33,16 @@ class Settings(BaseSettings):
     TWILIO_AUTH_TOKEN: Optional[str] = None
     TWILIO_FROM_NUMBER: Optional[str] = None
 
+    # Fast2SMS Alternative Indian SMS Gateway
+    FAST2SMS_API_KEY: Optional[str] = None
+
+    # SMTP Real Email Dispatch Credentials
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USER: Optional[str] = None
+    SMTP_PASSWORD: Optional[str] = None
+    SMTP_FROM_EMAIL: Optional[str] = None
+
     # Firebase Cloud Messaging (FCM) Credentials
     FCM_SERVER_KEY: Optional[str] = None
     FCM_PROJECT_ID: Optional[str] = None

@@ -146,10 +146,10 @@ export default function EmergencyMap({
     );
   }, [ambulances]);
 
-  // Auto-start live GPS navigation whenever a NEW route is loaded
+  // Live GPS navigation: only activate when there is an active emergency and dispatched ambulance
   useEffect(() => {
     const routeId = selectedRoute?.id || selectedRoute?.emergency_id;
-    if (routeId && routeId !== loadedRouteIdRef.current && routePoints.length >= 2) {
+    if (routeId && routeId !== loadedRouteIdRef.current && routePoints.length >= 2 && activeDispatchedAmb) {
       loadedRouteIdRef.current = routeId;
       hasPlayedSirenRef.current = false;
       const timer = setTimeout(() => {
@@ -157,8 +157,17 @@ export default function EmergencyMap({
         setNavProgress(0);
       }, 50);
       return () => clearTimeout(timer);
+    } else if (!selectedRoute || !activeDispatchedAmb) {
+      if (loadedRouteIdRef.current !== null) {
+        loadedRouteIdRef.current = null;
+        const timer = setTimeout(() => {
+          setIsNavigating(false);
+          setNavProgress(0);
+        }, 0);
+        return () => clearTimeout(timer);
+      }
     }
-  }, [selectedRoute, routePoints.length]);
+  }, [selectedRoute, routePoints.length, activeDispatchedAmb]);
 
   // Compute Current Animated Vehicle Coordinates along the Polyline
   const vehicleState = useMemo(() => {
@@ -461,8 +470,8 @@ export default function EmergencyMap({
         </div>
       )}
 
-      {/* LIVE GPS TURN-BY-TURN TELEMETRY HUD OVERLAY */}
-      {selectedRoute && routePoints.length >= 2 && (
+      {/* LIVE GPS TURN-BY-TURN TELEMETRY HUD OVERLAY (Only when unit is dispatched) */}
+      {selectedRoute && routePoints.length >= 2 && activeDispatchedAmb && (
         <div
           onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}

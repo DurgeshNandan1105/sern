@@ -11,8 +11,15 @@ const API_BASE = sanitizeApiBase();
 
 async function request(endpoint, options = {}) {
   const url = `${API_BASE}${endpoint}`;
+  let token = null;
+  try {
+    token = localStorage.getItem("sern_auth_token");
+  } catch {
+    // Local storage unavailable
+  }
   const headers = {
     'Content-Type': 'application/json',
+    ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
     ...(options.headers || {})
   };
 
@@ -167,6 +174,38 @@ export const sernApi = {
     request('/notifications', {
       method: 'POST',
       body: JSON.stringify(payload)
+    }),
+
+  // Authentication & Personnel Management
+  register: (payload) =>
+    request('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    }),
+
+  login: (payload) =>
+    request('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    }),
+
+  // Legacy OTP Stubs
+  sendOtp: (payload) =>
+    request('/auth/send-otp', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    }),
+
+  verifyOtp: (payload) =>
+    request('/auth/verify-otp', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    }),
+
+  // Dashboard Reset to Zero
+  resetDashboard: () =>
+    request('/accidents/reset', {
+      method: 'POST'
     }),
 
   // Real-Time WebSocket Push Connection
