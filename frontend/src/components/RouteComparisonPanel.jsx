@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { ShieldAlert, GitFork, Check } from "lucide-react";
 import "./RouteComparisonPanel.css";
 
@@ -58,13 +59,36 @@ const DEFAULT_ROUTE_OPTIONS = [
 export default function RouteComparisonPanel({
   activeRouteType = "CONGESTION_AWARE",
   onRouteChange = null,
-  targetHospitalName = "SPARSH RR Nagar"
+  targetHospitalName = "SPARSH RR Nagar",
+  candidates = null
 }) {
+  const routeOptions = useMemo(() => {
+    if (!candidates) return DEFAULT_ROUTE_OPTIONS;
+    return DEFAULT_ROUTE_OPTIONS.map((def) => {
+      const cand = candidates[def.id];
+      if (!cand) return def;
+      const dur = cand.estimated_duration_minutes || 14.8;
+      const min = Math.floor(dur);
+      const sec = Math.round((dur % 1) * 60);
+      return {
+        ...def,
+        primaryCorridor: cand.primary_corridor || def.primaryCorridor,
+        fullCorridor: cand.primary_corridor || def.fullCorridor,
+        distanceKm: cand.distance_km || def.distanceKm,
+        etaText: `${min}m ${sec.toString().padStart(2, "0")}s`,
+        avgSpeedText: `${cand.average_speed_kmh || 25} km/h`,
+        delayText: cand.traffic_delay_label || def.delayText,
+        delayedSection: cand.delayed_road_sections?.join(", ") || def.delayedSection,
+        hasDelayedSection: Boolean(cand.delayed_road_sections && cand.delayed_road_sections.length > 0),
+      };
+    });
+  }, [candidates]);
+
   return (
     <div className="route-comparison-container">
       {/* 1. THREE ROUTE MODE CARDS (Image 2) */}
       <div className="route-cards-grid">
-        {DEFAULT_ROUTE_OPTIONS.map((route) => {
+        {routeOptions.map((route) => {
           const isActive = activeRouteType === route.id;
 
           return (
@@ -148,7 +172,9 @@ export default function RouteComparisonPanel({
             <GitFork size={20} color="#38bdf8" />
             Alternative Route Comparison
           </h3>
-          <span className="table-subtitle">Live comparison for {targetHospitalName}</span>
+          <div className="route-table-meta">
+            Live comparison for {targetHospitalName}
+          </div>
         </div>
 
         <div className="route-table-wrapper">
@@ -166,39 +192,33 @@ export default function RouteComparisonPanel({
               </tr>
             </thead>
             <tbody>
-              {DEFAULT_ROUTE_OPTIONS.map((route) => {
+              {routeOptions.map((route) => {
                 const isActive = activeRouteType === route.id;
 
                 return (
-                  <tr key={`table-${route.id}`}>
-                    <td style={{ fontWeight: "700", color: "#f8fafc" }}>
-                      {route.id === "CONGESTION_AWARE" ? "Congestion-Aware Optimal Route" : route.title}{" "}
-                      {isActive && (
-                        <span style={{ color: "#34d399", fontSize: "11px", fontWeight: "700" }}>Active</span>
-                      )}
+                  <tr key={route.id} className={isActive ? "table-active-row" : ""}>
+                    <td className="route-name-cell">
+                      <strong>{route.title}</strong>
+                      {isActive && <span className="table-badge-active">Active</span>}
                     </td>
 
-                    <td style={{ fontSize: "12px", color: "#cbd5e1" }}>
+                    <td className="corridor-cell">
                       {route.fullCorridor}
                     </td>
 
-                    <td style={{ fontWeight: "600" }}>
-                      {route.distanceKm.toFixed(2)} km
-                    </td>
+                    <td>{route.distanceKm.toFixed(2)} km</td>
 
-                    <td style={{ color: route.etaColor, fontWeight: "700" }}>
+                    <td style={{ color: route.etaColor, fontWeight: "bold" }}>
                       {route.etaText}
                     </td>
 
-                    <td>
-                      <span style={{ color: isActive ? "#34d399" : "#f59e0b", fontWeight: "600" }}>
-                        {isActive ? "Selected" : route.vsActive}
-                      </span>
+                    <td style={{ color: isActive ? "#34d399" : "#fbbf24", fontWeight: "600" }}>
+                      {route.vsActive}
                     </td>
 
                     <td>
                       <span style={{ color: route.delayColor, fontWeight: "600" }}>
-                        {route.delayText === "No delay" ? "Clear" : `${route.delayText} delay`}
+                        {route.delayText === "No delay" ? "Clear" : route.delayText}
                       </span>
                     </td>
 

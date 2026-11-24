@@ -67,6 +67,23 @@ def update_emergency_status(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
 
+@router.get("/{emergency_id}/route-preview")
+def get_pre_dispatch_routes(emergency_id: int, db: Session = Depends(get_db)):
+    """
+    Calculates and compares candidate routes BEFORE dispatch:
+    - Identifies accident location.
+    - Identifies available ambulances and suitable hospitals.
+    - Runs Dijkstra on road graph for Shortest, Fastest, and Congestion-Aware routes.
+    - Returns comparison metrics with OPTIMAL ROUTE SELECTED identifier.
+    """
+    try:
+        return DispatchService.calculate_pre_dispatch_routes(db, emergency_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
 @router.post("/{emergency_id}/dispatch", response_model=EmergencyDispatchResponse)
 def dispatch_ambulance(
     emergency_id: int,

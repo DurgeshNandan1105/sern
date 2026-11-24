@@ -153,6 +153,9 @@ export const sernApi = {
   // Routing
   getRoute: (emergencyId) => request(`/routing/${emergencyId}`),
 
+  getPreDispatchRoutes: (emergencyId) =>
+    request(`/emergencies/${emergencyId}/route-preview`),
+
   generateMockRoute: (emergencyId) =>
     request(`/routing/${emergencyId}/mock`, {
       method: 'POST'
@@ -168,6 +171,12 @@ export const sernApi = {
   getTrafficIntersections: () => request('/traffic/intersections'),
 
   getTrafficCorridors: () => request('/traffic/corridors'),
+
+  evaluatePredictiveSignals: (emergencyId, payload) =>
+    request(`/traffic/corridors/${emergencyId}/evaluate-signals`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    }),
 
   preemptTrafficSignal: (payload) =>
     request('/traffic/preempt', {

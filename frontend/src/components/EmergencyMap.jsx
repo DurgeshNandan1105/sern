@@ -252,7 +252,16 @@ export default function EmergencyMap({
   const routePoints = useMemo(() => {
     if (!isCorridorActive) return [];
 
-    // 1. If backend calculated route geometry is provided, use it directly!
+    // 1. Check candidate route matching active routeMode from backend multi-strategy Dijkstra router
+    const candidates = selectedRoute?.candidates || selectedRoute?.route_geometry?.candidates;
+    if (candidates && candidates[routeMode]?.route_geometry?.coordinates) {
+      const coords = candidates[routeMode].route_geometry.coordinates;
+      if (Array.isArray(coords) && coords.length >= 2) {
+        return coords.map((coord) => [coord[1], coord[0]]);
+      }
+    }
+
+    // 2. If backend calculated route geometry is provided, use it directly!
     if (selectedRoute && selectedRoute.route_geometry) {
       try {
         const geom =
@@ -375,28 +384,52 @@ export default function EmergencyMap({
     }
   }, [isCorridorActive, selectedRoute, routePoints.length]);
 
-  // Dynamic Red-to-Green Signal Clearance Computation
-  const isSignal1Cleared = manualSignalOverrides[1] !== null ? manualSignalOverrides[1] : navProgress >= 0.18;
-  const isSignal2Cleared = manualSignalOverrides[2] !== null ? manualSignalOverrides[2] : navProgress >= 0.48;
-  const isSignal3Cleared = manualSignalOverrides[3] !== null ? manualSignalOverrides[3] : navProgress >= 0.78;
+  // Proactive Predictive Green Corridor Traffic Signal Control
+  // Signal 1: Intersection at ~0.18. Advance trigger at 0.06 (~20-25s before arrival). Passes at 0.22 (Restores normal cycle).
+  // Signal 2: Intersection at ~0.48. Advance trigger at 0.36 (~20-25s before arrival). Passes at 0.52 (Restores normal cycle).
+  // Signal 3: Intersection at ~0.78. Advance trigger at 0.66 (~20-25s before arrival). Passes at 0.82 (Restores normal cycle).
+  const getSignalState = useCallback((sigNum, progress, manualOverride) => {
+    if (manualOverride !== null) {
+      return manualOverride ? "PREEMPTIVE_GREEN" : "HOLD_RED";
+    }
+    const config = {
+      1: { approach: 0.06, at: 0.18, pass: 0.22 },
+      2: { approach: 0.36, at: 0.48, pass: 0.52 },
+      3: { approach: 0.66, at: 0.78, pass: 0.82 },
+    }[sigNum];
 
-  // Audio chimes on automatic state transitions (RED -> GREEN)
+    if (!config) return "HOLD_RED";
+    if (progress < config.approach) return "HOLD_RED";
+    if (progress < config.pass) return "PREEMPTIVE_GREEN";
+    return "RESTORED_NORMAL";
+  }, []);
+
+  const signal1State = getSignalState(1, navProgress, manualSignalOverrides[1]);
+  const signal2State = getSignalState(2, navProgress, manualSignalOverrides[2]);
+  const signal3State = getSignalState(3, navProgress, manualSignalOverrides[3]);
+
+  // Backward-compatible booleans for quick checks
+  const isSignal1Cleared = signal1State === "PREEMPTIVE_GREEN" || signal1State === "RESTORED_NORMAL";
+  const isSignal2Cleared = signal2State === "PREEMPTIVE_GREEN" || signal2State === "RESTORED_NORMAL";
+  const isSignal3Cleared = signal3State === "PREEMPTIVE_GREEN" || signal3State === "RESTORED_NORMAL";
+
+  // Audio chimes on automatic state transitions into PREEMPTIVE_GREEN
   useEffect(() => {
     if (!isNavigating) return;
 
-    if (isSignal1Cleared && !lastPreemptRef.current[1]) {
+    if (signal1State === "PREEMPTIVE_GREEN" && !lastPreemptRef.current[1]) {
       lastPreemptRef.current[1] = true;
       if (soundEnabled) playDispatchChime();
     }
-    if (isSignal2Cleared && !lastPreemptRef.current[2]) {
+    if (signal2State === "PREEMPTIVE_GREEN" && !lastPreemptRef.current[2]) {
       lastPreemptRef.current[2] = true;
       if (soundEnabled) playDispatchChime();
     }
-    if (isSignal3Cleared && !lastPreemptRef.current[3]) {
+    if (signal3State === "PREEMPTIVE_GREEN" && !lastPreemptRef.current[3]) {
       lastPreemptRef.current[3] = true;
       if (soundEnabled) playDispatchChime();
     }
-  }, [isSignal1Cleared, isSignal2Cleared, isSignal3Cleared, isNavigating, soundEnabled]);
+  }, [signal1State, signal2State, signal3State, isNavigating, soundEnabled]);
 
   // Compute Current Animated Vehicle Coordinates along Polyline
   const vehicleState = useMemo(() => {
@@ -500,16 +533,28 @@ export default function EmergencyMap({
         const etaSec = Math.round((remainingKm / (currentSpeedKmh || 20)) * 3600);
 
         let stepText;
-        if (next < 0.18) {
-          stepText = "Approaching Signal #1: Cross-traffic holding RED";
+        if (next < 0.06) {
+          stepText = "Standby: Route signals holding cross-traffic in RED HOLD state";
+        } else if (next < 0.18) {
+          stepText = "Signal #1 PREEMPTIVE GREEN activated (20s advance queue flush before arrival)";
+        } else if (next < 0.22) {
+          stepText = "Ambulance crossing Intersection #1 with solid green priority";
+        } else if (next < 0.36) {
+          stepText = "Intersection #1 safely crossed · Normal cycle restored · Approaching Link #2";
         } else if (next < 0.48) {
-          stepText = "Signal #1 CLEARED (RED ➔ GREEN). Advancing along primary corridor";
+          stepText = "Signal #2 PREEMPTIVE GREEN activated (20s advance queue flush before arrival)";
+        } else if (next < 0.52) {
+          stepText = "Ambulance crossing Intersection #2 · Congested sections bypassed";
+        } else if (next < 0.66) {
+          stepText = "Intersection #2 safely crossed · Normal cycle restored · Approaching Hospital Link";
         } else if (next < 0.78) {
-          stepText = "Signal #2 CLEARED (RED ➔ GREEN). Bypassing congested traffic segments";
-        } else if (next < 0.98) {
-          stepText = "Signal #3 CLEARED (RED ➔ GREEN). Final approach to emergency trauma bay";
+          stepText = "Signal #3 PREEMPTIVE GREEN activated (20s advance emergency corridor)";
+        } else if (next < 0.82) {
+          stepText = "Ambulance crossing Intersection #3 · Entering emergency bay entrance";
+        } else if (next < 1.0) {
+          stepText = "All signals safely cleared & restored · Final approach to trauma desk";
         } else {
-          stepText = "Arrived at Destination: Trauma Hospital";
+          stepText = "Arrived at Destination: Trauma Hospital (Unit On Site)";
         }
 
         setTelemetry({
@@ -532,6 +577,14 @@ export default function EmergencyMap({
             eta_seconds: etaSec,
             status: "EN_ROUTE",
           }).catch(() => {});
+
+          if (activeEmergency?.id) {
+            sernApi.evaluatePredictiveSignals(activeEmergency.id, {
+              current_lat: vehicleState.pos[0],
+              current_lon: vehicleState.pos[1],
+              speed_kmh: currentSpeedKmh
+            }).catch(() => {});
+          }
         }
 
         return next;
@@ -553,6 +606,7 @@ export default function EmergencyMap({
     activeDispatchedAmb,
     vehicleState,
     routeMode,
+    activeEmergency?.id,
   ]);
 
   // Toggle individual signal manually
@@ -577,9 +631,12 @@ export default function EmergencyMap({
     setManualSignalOverrides({ 1: false, 2: false, 3: false });
   };
 
-  // Custom DivIcon for Corridor Signals
-  const createCorridorSignalIcon = (num, isCleared) => {
-    if (isCleared) {
+  // Custom DivIcon for Corridor Signals (Supports Predictive Green, Restored, and Red Hold)
+  const createCorridorSignalIcon = (num, state) => {
+    const isPreemptGreen = state === "PREEMPTIVE_GREEN" || state === true;
+    const isRestored = state === "RESTORED_NORMAL";
+
+    if (isPreemptGreen) {
       return L.divIcon({
         className: "",
         html: `
@@ -588,33 +645,66 @@ export default function EmergencyMap({
             align-items: center;
             gap: 5px;
             background: #020617;
-            border: 2px solid #06b6d4;
+            border: 2px solid #10b981;
             border-radius: 6px;
             padding: 3px 8px;
-            color: #38bdf8;
+            color: #34d399;
             font-weight: 800;
             font-size: 11px;
-            box-shadow: 0 0 16px rgba(6, 182, 212, 0.7);
+            box-shadow: 0 0 18px rgba(16, 185, 129, 0.85);
             letter-spacing: 0.5px;
             cursor: pointer;
-          " title="Click to toggle Red / Green signal">
+          " title="Signal #${num}: PREEMPTIVE GREEN (20s Advance Clearance - Flushing Queue)">
             <span style="
               display: inline-flex;
               align-items: center;
               justify-content: center;
-              border: 1.5px solid #06b6d4;
+              border: 1.5px solid #10b981;
               border-radius: 3px;
               width: 13px;
               height: 13px;
               font-size: 9px;
-              color: #38bdf8;
+              color: #34d399;
               font-weight: 900;
             ">✓</span>
-            #${num} CLR
+            #${num} ADVANCE GREEN
           </div>
         `,
-        iconSize: [72, 28],
-        iconAnchor: [36, 14],
+        iconSize: [120, 28],
+        iconAnchor: [60, 14],
+        popupAnchor: [0, -14],
+      });
+    } else if (isRestored) {
+      return L.divIcon({
+        className: "",
+        html: `
+          <div style="
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            background: #0f172a;
+            border: 1.5px solid #64748b;
+            border-radius: 6px;
+            padding: 3px 8px;
+            color: #94a3b8;
+            font-weight: 700;
+            font-size: 11px;
+            box-shadow: 0 0 8px rgba(100, 116, 139, 0.4);
+            letter-spacing: 0.5px;
+            cursor: pointer;
+          " title="Signal #${num}: Normal cycle restored after ambulance clearance">
+            <span style="
+              display: inline-block;
+              width: 8px;
+              height: 8px;
+              border-radius: 50%;
+              background: #64748b;
+            "></span>
+            #${num} RESTORED
+          </div>
+        `,
+        iconSize: [100, 28],
+        iconAnchor: [50, 14],
         popupAnchor: [0, -14],
       });
     } else {
@@ -635,7 +725,7 @@ export default function EmergencyMap({
             box-shadow: 0 0 14px rgba(239, 68, 68, 0.7);
             letter-spacing: 0.5px;
             cursor: pointer;
-          " title="Click to toggle Red / Green signal">
+          " title="Signal #${num}: RED HOLD (Holding cross-traffic)">
             <span style="
               display: inline-block;
               width: 9px;
@@ -644,11 +734,11 @@ export default function EmergencyMap({
               background: #ef4444;
               box-shadow: 0 0 8px #ef4444;
             "></span>
-            #${num} HOLD
+            #${num} RED HOLD
           </div>
         `,
-        iconSize: [78, 28],
-        iconAnchor: [39, 14],
+        iconSize: [95, 28],
+        iconAnchor: [47, 14],
         popupAnchor: [0, -14],
       });
     }
@@ -1054,19 +1144,19 @@ export default function EmergencyMap({
               </div>
             </div>
 
-            {/* DYNAMIC RED-TO-GREEN TRAFFIC PREEMPTION STATUS BANNER */}
+            {/* DYNAMIC PROACTIVE PREDICTIVE TRAFFIC PREEMPTION STATUS BANNER */}
             <div style={{
-              background: isSignal1Cleared && isSignal2Cleared && isSignal3Cleared
-                ? "rgba(6, 78, 59, 0.6)"
-                : isSignal1Cleared
-                ? "rgba(14, 116, 144, 0.5)"
-                : "rgba(153, 27, 27, 0.5)",
+              background: (signal1State === "PREEMPTIVE_GREEN" || signal2State === "PREEMPTIVE_GREEN" || signal3State === "PREEMPTIVE_GREEN")
+                ? "rgba(6, 78, 59, 0.7)"
+                : (navProgress >= 0.82)
+                ? "rgba(14, 116, 144, 0.6)"
+                : "rgba(153, 27, 27, 0.6)",
               border: `1px solid ${
-                isSignal1Cleared && isSignal2Cleared && isSignal3Cleared
-                  ? "rgba(16, 185, 129, 0.6)"
-                  : isSignal1Cleared
-                  ? "rgba(56, 189, 248, 0.6)"
-                  : "rgba(239, 68, 68, 0.6)"
+                (signal1State === "PREEMPTIVE_GREEN" || signal2State === "PREEMPTIVE_GREEN" || signal3State === "PREEMPTIVE_GREEN")
+                  ? "rgba(16, 185, 129, 0.8)"
+                  : (navProgress >= 0.82)
+                  ? "rgba(56, 189, 248, 0.8)"
+                  : "rgba(239, 68, 68, 0.7)"
               }`,
               borderRadius: "6px",
               padding: "6px 10px",
@@ -1080,34 +1170,38 @@ export default function EmergencyMap({
                 display: "flex",
                 alignItems: "center",
                 gap: "6px",
-                color: isSignal1Cleared ? "#38bdf8" : "#f87171",
+                color: (signal1State === "PREEMPTIVE_GREEN" || signal2State === "PREEMPTIVE_GREEN" || signal3State === "PREEMPTIVE_GREEN" || navProgress >= 0.82) ? "#34d399" : "#f87171",
                 fontWeight: "700"
               }}>
                 <span style={{
                   width: "8px",
                   height: "8px",
                   borderRadius: "50%",
-                  background: isSignal1Cleared ? "#10b981" : "#ef4444",
-                  boxShadow: isSignal1Cleared ? "0 0 8px #10b981" : "0 0 6px #ef4444",
+                  background: (signal1State === "PREEMPTIVE_GREEN" || signal2State === "PREEMPTIVE_GREEN" || signal3State === "PREEMPTIVE_GREEN" || navProgress >= 0.82) ? "#10b981" : "#ef4444",
+                  boxShadow: (signal1State === "PREEMPTIVE_GREEN" || signal2State === "PREEMPTIVE_GREEN" || signal3State === "PREEMPTIVE_GREEN") ? "0 0 10px #10b981" : "0 0 6px #ef4444",
                 }} />
-                {isSignal1Cleared && isSignal2Cleared && isSignal3Cleared
-                  ? "All 3 Signals Cleared (Green Corridor)"
-                  : isSignal2Cleared
-                  ? "Signals #1 & #2 CLEARED (RED ➔ GREEN)"
-                  : isSignal1Cleared
-                  ? "Signal #1 CLEARED (RED ➔ GREEN)"
+                {signal1State === "PREEMPTIVE_GREEN"
+                  ? "Signal #1 PREEMPTIVE GREEN (20s Advance Queue Flush)"
+                  : signal2State === "PREEMPTIVE_GREEN"
+                  ? "Signal #2 PREEMPTIVE GREEN (20s Advance Queue Flush)"
+                  : signal3State === "PREEMPTIVE_GREEN"
+                  ? "Signal #3 PREEMPTIVE GREEN (20s Advance Queue Flush)"
+                  : navProgress >= 0.82
+                  ? "All 3 Signals Cleared · Normal Traffic Cycles Restored"
+                  : signal1State === "RESTORED_NORMAL" && signal2State === "HOLD_RED"
+                  ? "Signal #1 Restored · Approaching Signal #2 (Holding RED)"
                   : "Signals in RED HOLD (Standby)"}
               </span>
 
               <span style={{
                 fontSize: "10px",
-                color: isSignal1Cleared ? "#38bdf8" : "#fca5a5",
+                color: (signal1State === "PREEMPTIVE_GREEN" || signal2State === "PREEMPTIVE_GREEN" || signal3State === "PREEMPTIVE_GREEN") ? "#34d399" : navProgress >= 0.82 ? "#38bdf8" : "#fca5a5",
                 fontWeight: "800",
-                background: isSignal1Cleared ? "rgba(6, 182, 212, 0.25)" : "rgba(239, 68, 68, 0.25)",
+                background: (signal1State === "PREEMPTIVE_GREEN" || signal2State === "PREEMPTIVE_GREEN" || signal3State === "PREEMPTIVE_GREEN") ? "rgba(16, 185, 129, 0.25)" : navProgress >= 0.82 ? "rgba(6, 182, 212, 0.25)" : "rgba(239, 68, 68, 0.25)",
                 padding: "2px 6px",
                 borderRadius: "4px"
               }}>
-                {isSignal1Cleared ? "GREEN LOCK" : "RED HOLD"}
+                {(signal1State === "PREEMPTIVE_GREEN" || signal2State === "PREEMPTIVE_GREEN" || signal3State === "PREEMPTIVE_GREEN") ? "PREEMPTIVE GREEN" : navProgress >= 0.82 ? "GREEN LOCK" : "RED HOLD"}
               </span>
             </div>
 
@@ -1159,51 +1253,51 @@ export default function EmergencyMap({
                 onClick={() => toggleSignal(1)}
                 style={{
                   padding: "4px 2px",
-                  background: isSignal1Cleared ? "rgba(6, 182, 212, 0.25)" : "rgba(239, 68, 68, 0.2)",
-                  border: `1px solid ${isSignal1Cleared ? "#06b6d4" : "#ef4444"}`,
+                  background: signal1State === "PREEMPTIVE_GREEN" ? "rgba(16, 185, 129, 0.25)" : signal1State === "RESTORED_NORMAL" ? "rgba(100, 116, 139, 0.25)" : "rgba(239, 68, 68, 0.2)",
+                  border: `1px solid ${signal1State === "PREEMPTIVE_GREEN" ? "#10b981" : signal1State === "RESTORED_NORMAL" ? "#64748b" : "#ef4444"}`,
                   borderRadius: "4px",
-                  color: isSignal1Cleared ? "#38bdf8" : "#f87171",
+                  color: signal1State === "PREEMPTIVE_GREEN" ? "#34d399" : signal1State === "RESTORED_NORMAL" ? "#94a3b8" : "#f87171",
                   fontSize: "10px",
                   fontWeight: "bold",
                   cursor: "pointer"
                 }}
-                title="Click to toggle Signal #1 between Red and Green"
+                title="Click to toggle Signal #1"
               >
-                #1 {isSignal1Cleared ? "🟢 CLR" : "🔴 HOLD"}
+                #1 {signal1State === "PREEMPTIVE_GREEN" ? "🟢 ADVANCE" : signal1State === "RESTORED_NORMAL" ? "⚪ NORMAL" : "🔴 HOLD"}
               </button>
 
               <button
                 onClick={() => toggleSignal(2)}
                 style={{
                   padding: "4px 2px",
-                  background: isSignal2Cleared ? "rgba(6, 182, 212, 0.25)" : "rgba(239, 68, 68, 0.2)",
-                  border: `1px solid ${isSignal2Cleared ? "#06b6d4" : "#ef4444"}`,
+                  background: signal2State === "PREEMPTIVE_GREEN" ? "rgba(16, 185, 129, 0.25)" : signal2State === "RESTORED_NORMAL" ? "rgba(100, 116, 139, 0.25)" : "rgba(239, 68, 68, 0.2)",
+                  border: `1px solid ${signal2State === "PREEMPTIVE_GREEN" ? "#10b981" : signal2State === "RESTORED_NORMAL" ? "#64748b" : "#ef4444"}`,
                   borderRadius: "4px",
-                  color: isSignal2Cleared ? "#38bdf8" : "#f87171",
+                  color: signal2State === "PREEMPTIVE_GREEN" ? "#34d399" : signal2State === "RESTORED_NORMAL" ? "#94a3b8" : "#f87171",
                   fontSize: "10px",
                   fontWeight: "bold",
                   cursor: "pointer"
                 }}
-                title="Click to toggle Signal #2 between Red and Green"
+                title="Click to toggle Signal #2"
               >
-                #2 {isSignal2Cleared ? "🟢 CLR" : "🔴 HOLD"}
+                #2 {signal2State === "PREEMPTIVE_GREEN" ? "🟢 ADVANCE" : signal2State === "RESTORED_NORMAL" ? "⚪ NORMAL" : "🔴 HOLD"}
               </button>
 
               <button
                 onClick={() => toggleSignal(3)}
                 style={{
                   padding: "4px 2px",
-                  background: isSignal3Cleared ? "rgba(6, 182, 212, 0.25)" : "rgba(239, 68, 68, 0.2)",
-                  border: `1px solid ${isSignal3Cleared ? "#06b6d4" : "#ef4444"}`,
+                  background: signal3State === "PREEMPTIVE_GREEN" ? "rgba(16, 185, 129, 0.25)" : signal3State === "RESTORED_NORMAL" ? "rgba(100, 116, 139, 0.25)" : "rgba(239, 68, 68, 0.2)",
+                  border: `1px solid ${signal3State === "PREEMPTIVE_GREEN" ? "#10b981" : signal3State === "RESTORED_NORMAL" ? "#64748b" : "#ef4444"}`,
                   borderRadius: "4px",
-                  color: isSignal3Cleared ? "#38bdf8" : "#f87171",
+                  color: signal3State === "PREEMPTIVE_GREEN" ? "#34d399" : signal3State === "RESTORED_NORMAL" ? "#94a3b8" : "#f87171",
                   fontSize: "10px",
                   fontWeight: "bold",
                   cursor: "pointer"
                 }}
-                title="Click to toggle Signal #3 between Red and Green"
+                title="Click to toggle Signal #3"
               >
-                #3 {isSignal3Cleared ? "🟢 CLR" : "🔴 HOLD"}
+                #3 {signal3State === "PREEMPTIVE_GREEN" ? "🟢 ADVANCE" : signal3State === "RESTORED_NORMAL" ? "⚪ NORMAL" : "🔴 HOLD"}
               </button>
             </div>
 
@@ -1379,18 +1473,18 @@ export default function EmergencyMap({
                 </Marker>
               )}
 
-              {/* Corridor Intersections with Live Red -> Green Simulation */}
+              {/* Corridor Intersections with Proactive Predictive Red -> Preemptive Green -> Restored Simulation */}
               <Marker
                 position={routePoints[1] || [12.9080, 77.5198]}
-                icon={createCorridorSignalIcon(1, isSignal1Cleared)}
+                icon={createCorridorSignalIcon(1, signal1State)}
                 eventHandlers={{ click: () => toggleSignal(1) }}
               >
                 <Popup>
-                  <div style={{ color: "#0f172a", minWidth: "170px" }}>
+                  <div style={{ color: "#0f172a", minWidth: "180px" }}>
                     <strong>Intersection #1: Arterial Junction</strong>
                     <p style={{ margin: "4px 0", fontSize: "12px" }}>
-                      Status: <strong style={{ color: isSignal1Cleared ? "#16a34a" : "#dc2626" }}>
-                        {isSignal1Cleared ? "GREEN (PREEMPTION CLEARED)" : "RED (HOLDING CROSS-TRAFFIC)"}
+                      Signal State: <strong style={{ color: signal1State === "PREEMPTIVE_GREEN" ? "#16a34a" : signal1State === "RESTORED_NORMAL" ? "#64748b" : "#dc2626" }}>
+                        {signal1State === "PREEMPTIVE_GREEN" ? "🟢 PREEMPTIVE GREEN (20s Advance)" : signal1State === "RESTORED_NORMAL" ? "⚪ RESTORED (Normal Cycle)" : "🔴 RED HOLD (Cross-traffic)"}
                       </strong>
                     </p>
                   </div>
@@ -1399,15 +1493,15 @@ export default function EmergencyMap({
 
               <Marker
                 position={routePoints[2] || [12.9140, 77.5165]}
-                icon={createCorridorSignalIcon(2, isSignal2Cleared)}
+                icon={createCorridorSignalIcon(2, signal2State)}
                 eventHandlers={{ click: () => toggleSignal(2) }}
               >
                 <Popup>
-                  <div style={{ color: "#0f172a", minWidth: "170px" }}>
+                  <div style={{ color: "#0f172a", minWidth: "180px" }}>
                     <strong>Intersection #2: Corridor Link</strong>
                     <p style={{ margin: "4px 0", fontSize: "12px" }}>
-                      Status: <strong style={{ color: isSignal2Cleared ? "#16a34a" : "#dc2626" }}>
-                        {isSignal2Cleared ? "GREEN (PREEMPTION CLEARED)" : "RED (HOLDING CROSS-TRAFFIC)"}
+                      Signal State: <strong style={{ color: signal2State === "PREEMPTIVE_GREEN" ? "#16a34a" : signal2State === "RESTORED_NORMAL" ? "#64748b" : "#dc2626" }}>
+                        {signal2State === "PREEMPTIVE_GREEN" ? "🟢 PREEMPTIVE GREEN (20s Advance)" : signal2State === "RESTORED_NORMAL" ? "⚪ RESTORED (Normal Cycle)" : "🔴 RED HOLD (Cross-traffic)"}
                       </strong>
                     </p>
                   </div>
@@ -1416,15 +1510,15 @@ export default function EmergencyMap({
 
               <Marker
                 position={routePoints[routePoints.length - 2] || [12.9285, 77.5180]}
-                icon={createCorridorSignalIcon(3, isSignal3Cleared)}
+                icon={createCorridorSignalIcon(3, signal3State)}
                 eventHandlers={{ click: () => toggleSignal(3) }}
               >
                 <Popup>
-                  <div style={{ color: "#0f172a", minWidth: "170px" }}>
+                  <div style={{ color: "#0f172a", minWidth: "180px" }}>
                     <strong>Intersection #3: Hospital Approach</strong>
                     <p style={{ margin: "4px 0", fontSize: "12px" }}>
-                      Status: <strong style={{ color: isSignal3Cleared ? "#16a34a" : "#dc2626" }}>
-                        {isSignal3Cleared ? "GREEN (PREEMPTION CLEARED)" : "RED (HOLDING CROSS-TRAFFIC)"}
+                      Signal State: <strong style={{ color: signal3State === "PREEMPTIVE_GREEN" ? "#16a34a" : signal3State === "RESTORED_NORMAL" ? "#64748b" : "#dc2626" }}>
+                        {signal3State === "PREEMPTIVE_GREEN" ? "🟢 PREEMPTIVE GREEN (20s Advance)" : signal3State === "RESTORED_NORMAL" ? "⚪ RESTORED (Normal Cycle)" : "🔴 RED HOLD (Cross-traffic)"}
                       </strong>
                     </p>
                   </div>
@@ -1677,6 +1771,7 @@ export default function EmergencyMap({
             setManualSignalOverrides({ 1: null, 2: null, 3: null });
           }}
           targetHospitalName={hospitals[0]?.name || "SPARSH RR Nagar"}
+          candidates={selectedRoute?.candidates || selectedRoute?.route_geometry?.candidates}
         />
       )}
     </div>

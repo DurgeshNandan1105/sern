@@ -27,6 +27,12 @@ class CongestionUpdateRequest(BaseModel):
     recalculate_active_routes: bool = True
 
 
+class TelemetrySignalEvaluation(BaseModel):
+    current_latitude: float
+    current_longitude: float
+    speed_kmh: float = Field(default=45.0, ge=0.0)
+
+
 @router.get("/intersections")
 def get_intersections():
     """Retrieve real-time status, signals, countdowns, and congestion for all monitored intersections."""
@@ -154,6 +160,23 @@ def recalculate_route(emergency_id: int, avoid_congestion: bool = True, db: Sess
     resp = RouteResponse.model_validate(stored)
     ws_manager.broadcast_sync("ROUTE_UPDATED", resp.model_dump())
     return resp
+
+
+@router.post("/corridors/{emergency_id}/evaluate-signals")
+def evaluate_predictive_signals_endpoint(
+    emergency_id: int,
+    payload: TelemetrySignalEvaluation
+):
+    """
+    Evaluates ambulance GPS progress along route and triggers predictive green corridor
+    signal preemption 20-30 seconds BEFORE reaching each intersection in sequence.
+    """
+    return TrafficService.evaluate_predictive_signals(
+        emergency_id=emergency_id,
+        current_lat=payload.current_latitude,
+        current_lon=payload.current_longitude,
+        speed_kmh=payload.speed_kmh
+    )
 
 
 @router.post("/reset")

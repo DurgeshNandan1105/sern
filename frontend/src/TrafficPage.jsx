@@ -11,6 +11,7 @@ import {
   Compass
 } from "lucide-react";
 import { sernApi } from "./services/api";
+import RouteComparisonPanel from "./components/RouteComparisonPanel";
 import "./TrafficPage.css";
 
 export default function TrafficPage({
@@ -308,6 +309,18 @@ export default function TrafficPage({
           </div>
         )}
       </div>
+
+      {/* ALTERNATIVE ROUTE COMPARISON (Shown during active emergency) */}
+      {activeEmergency && (
+        <RouteComparisonPanel
+          activeRouteType={selectedRoute?.selected_strategy || "CONGESTION_AWARE"}
+          onRouteChange={() => {
+            handleRecalculateRoute(activeEmergency.id);
+          }}
+          targetHospitalName={selectedRoute?.hospital_name || "SPARSH RR Nagar"}
+          candidates={selectedRoute?.candidates || selectedRoute?.route_geometry?.candidates}
+        />
+      )}
 
       {/* METRIC CARDS */}
       <div className="traffic-metrics-grid">
