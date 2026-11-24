@@ -164,6 +164,33 @@ export const sernApi = {
       body: JSON.stringify(payload)
     }),
 
+  // Traffic & Smart Signal Prioritization
+  getTrafficIntersections: () => request('/traffic/intersections'),
+
+  getTrafficCorridors: () => request('/traffic/corridors'),
+
+  preemptTrafficSignal: (payload) =>
+    request('/traffic/preempt', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    }),
+
+  updateTrafficCongestion: (payload) =>
+    request('/traffic/congestion', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    }),
+
+  recalculateRoute: (emergencyId, avoidCongestion = true) =>
+    request(`/traffic/recalculate/${emergencyId}?avoid_congestion=${avoidCongestion}`, {
+      method: 'POST'
+    }),
+
+  resetTrafficSignals: () =>
+    request('/traffic/reset', {
+      method: 'POST'
+    }),
+
   // Notifications
   getNotifications: (emergencyId = null) => {
     const qs = emergencyId ? `?emergency_id=${emergencyId}` : '';

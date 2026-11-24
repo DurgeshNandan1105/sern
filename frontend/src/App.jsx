@@ -8,6 +8,12 @@ import "./LoginPage.css";
 import ForgotPasswordPage from "./ForgotPasswordPage";
 import ProfilePage from "./ProfilePage";
 import "./ProfilePage.css";
+import TrafficPage from "./TrafficPage";
+import "./TrafficPage.css";
+import ReportsPage from "./ReportsPage";
+import "./ReportsPage.css";
+import AnalyticsPage from "./AnalyticsPage";
+import "./AnalyticsPage.css";
 import EmergencyMap from "./components/EmergencyMap";
 import AccidentSimulatorModal from "./components/AccidentSimulatorModal";
 import AddAmbulanceModal from "./components/AddAmbulanceModal";
@@ -23,7 +29,8 @@ import {
   Car, Clock, LayoutDashboard, MapPin, Menu,
   ShieldCheck, Siren, Users, X, Sun, Moon,
   Play, Plus, RefreshCw, CheckCircle2,
-  Phone, Compass, ShieldAlert, LogOut, RotateCcw
+  Phone, Compass, ShieldAlert, LogOut, RotateCcw,
+  FileText, TrendingUp
 } from "lucide-react";
 import "./App.css";
 
@@ -33,6 +40,9 @@ const menuItems = [
   { name: "Ambulances", icon: Ambulance },
   { name: "Emergency History", icon: Clock },
   { name: "Hospitals", icon: Building2 },
+  { name: "Traffic", icon: Car },
+  { name: "Reports", icon: FileText },
+  { name: "Analytics", icon: TrendingUp },
   { name: "Profile", icon: Users },
 ];
 
@@ -53,6 +63,7 @@ function App() {
   const [emergencies, setEmergencies] = useState([]);
   const [hospitals, setHospitals] = useState([]);
   const [notifications, setNotifications] = useState([]);
+  const [intersections, setIntersections] = useState([]);
   const [systemHealth, setSystemHealth] = useState({ status: "checking", ml_model_loaded: false });
   const [selectedRoute, setSelectedRoute] = useState(null);
   const [activeMapCenter, setActiveMapCenter] = useState([12.9716, 77.5946]);
@@ -123,17 +134,19 @@ function App() {
   const fetchData = useCallback(async () => {
     try {
       setLoadingData(true);
-      const [accRes, ambRes, emRes, hospRes, notifRes, healthRes] = await Promise.allSettled([
+      const [accRes, ambRes, emRes, hospRes, notifRes, healthRes, trafficRes] = await Promise.allSettled([
         sernApi.getAccidents(),
         sernApi.getAmbulances(),
         sernApi.getEmergencies(),
         sernApi.getHospitals(false),
         sernApi.getNotifications(),
-        sernApi.getHealth()
+        sernApi.getHealth(),
+        sernApi.getTrafficIntersections()
       ]);
 
       if (accRes.status === "fulfilled") setAccidents(accRes.value);
       if (ambRes.status === "fulfilled") setAmbulances(ambRes.value);
+      if (trafficRes.status === "fulfilled" && Array.isArray(trafficRes.value)) setIntersections(trafficRes.value);
       if (emRes.status === "fulfilled") {
         setEmergencies(emRes.value);
         // Only load route if an emergency is actively dispatched/en route
@@ -205,6 +218,8 @@ function App() {
           setNotifications((prev) => [data, ...prev.filter((n) => n.id !== data.id)]);
         } else if (type === "ROUTE_UPDATED") {
           setSelectedRoute(data);
+        } else if (type === "TRAFFIC_SIGNAL_UPDATED" || type === "TRAFFIC_CONGESTION_UPDATED") {
+          if (data?.intersections) setIntersections(data.intersections);
         } else if (type === "DASHBOARD_RESET") {
           setAccidents([]);
           setEmergencies([]);
@@ -498,10 +513,18 @@ function App() {
         <nav className="navigation">
           {menuItems.map((item) => {
             const Icon = item.icon;
+            const activeCorridorCount = emergencies.filter((e) =>
+              ["DISPATCHED", "ASSIGNED", "EN_ROUTE"].includes(e.status)
+            ).length;
             const badgeCount =
               item.name === "Accident Alerts" ? pendingAccidents.length :
               item.name === "Ambulances" ? availableAmbulances.length :
-              item.name === "Emergency History" ? activeEmergencies.length : 0;
+              item.name === "Emergency History" ? activeEmergencies.length :
+              item.name === "Traffic" ? activeCorridorCount : 0;
+
+            const badgeBg =
+              item.name === "Accident Alerts" ? "#ef4444" :
+              item.name === "Traffic" ? "#10b981" : "#2563eb";
 
             return (
               <button
@@ -520,7 +543,7 @@ function App() {
                     fontWeight: "700",
                     padding: "2px 6px",
                     borderRadius: "10px",
-                    background: item.name === "Accident Alerts" ? "#ef4444" : "#2563eb",
+                    background: badgeBg,
                     color: "white"
                   }}>
                     {badgeCount}
@@ -734,6 +757,7 @@ function App() {
                       accidents={accidents}
                       emergencies={emergencies}
                       hospitals={hospitals}
+                      intersections={intersections}
                       selectedRoute={selectedRoute}
                       activeCenter={activeMapCenter}
                       onSelectAccident={(acc) => {
@@ -751,6 +775,7 @@ function App() {
                       <span>🟠 Dispatched Amb</span>
                       <span>🔴 Accident Site</span>
                       <span>🟢 Partner Hospital</span>
+                      <span>🚦 Smart Signal</span>
                       <span>🩵 Active Route</span>
                       <span>⚡ Turn-by-Turn GPS</span>
                     </div>
@@ -1225,6 +1250,35 @@ function App() {
                 })}
               </div>
             </section>
+          ) : activePage === "Traffic" ? (
+            <TrafficPage
+              emergencies={emergencies}
+              ambulances={ambulances}
+              accidents={accidents}
+              hospitals={hospitals}
+              selectedRoute={selectedRoute}
+              wsStatus={wsStatus}
+              onViewRoute={handleViewRoute}
+              onNavigate={setActivePage}
+            />
+          ) : activePage === "Reports" ? (
+            <ReportsPage
+              accidents={accidents}
+              emergencies={emergencies}
+              ambulances={ambulances}
+              hospitals={hospitals}
+              wsStatus={wsStatus}
+              onViewRoute={handleViewRoute}
+              onNavigate={setActivePage}
+            />
+          ) : activePage === "Analytics" ? (
+            <AnalyticsPage
+              accidents={accidents}
+              ambulances={ambulances}
+              hospitals={hospitals}
+              emergencies={emergencies}
+              wsStatus={wsStatus}
+            />
           ) : activePage === "Profile" ? (
             <ProfilePage
               currentUser={currentUser}

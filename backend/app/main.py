@@ -19,6 +19,7 @@ from app.routes import (
     routing_router,
     ws_router,
     auth_router,
+    traffic_router,
 )
 
 # Configure logging
@@ -93,6 +94,7 @@ app.include_router(emergencies_router, prefix="/api")
 app.include_router(hospitals_router, prefix="/api")
 app.include_router(notifications_router, prefix="/api")
 app.include_router(routing_router, prefix="/api")
+app.include_router(traffic_router, prefix="/api")
 app.include_router(auth_router, prefix="/api")
 app.include_router(ws_router, prefix="/api")
 app.include_router(ws_router)

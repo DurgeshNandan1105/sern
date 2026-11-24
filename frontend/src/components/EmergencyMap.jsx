@@ -66,6 +66,7 @@ export default function EmergencyMap({
   ambulances = [],
   accidents = [],
   hospitals = [],
+  intersections = [],
   selectedRoute = null,
   activeCenter = [12.9716, 77.5946],
   onSelectAccident = null,
@@ -337,6 +338,41 @@ export default function EmergencyMap({
   ]);
 
   // Custom DivIcons
+  const createTrafficSignalIcon = (state, isCorridor = false) => {
+    const isGreen = state === "GREEN_PREEMPTION" || state === "NORMAL_CYCLE";
+    const isPreempted = state === "GREEN_PREEMPTION" || isCorridor;
+    const bg = isPreempted ? "#10b981" : isGreen ? "#059669" : "#ef4444";
+    return L.divIcon({
+      className: "",
+      html: `
+        <div style="
+          position: relative;
+          width: 24px;
+          height: 24px;
+          background: #0f172a;
+          border: 2px solid ${bg};
+          border-radius: 6px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.6);
+          ${isPreempted ? "box-shadow: 0 0 12px #10b981;" : ""}
+        ">
+          <div style="
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: ${bg};
+            ${isPreempted ? "box-shadow: 0 0 8px #10b981; animation: map-pulse 1s infinite;" : ""}
+          "></div>
+        </div>
+      `,
+      iconSize: [24, 24],
+      iconAnchor: [12, 12],
+      popupAnchor: [0, -12],
+    });
+  };
+
   const createPinIcon = (color, symbol, pulse = false) => {
     return L.divIcon({
       className: "",
@@ -880,7 +916,43 @@ export default function EmergencyMap({
           );
         })}
 
-        {/* 5. Traveled Route Segment (Green Corridor) */}
+        {/* 5. Traffic Signal Intersections along Road Network */}
+        {intersections.map((intNode) => {
+          const isPreempted = intNode.signal_state === "GREEN_PREEMPTION" || intNode.green_corridor_active;
+          return (
+            <Marker
+              key={`int-${intNode.id}`}
+              position={[intNode.latitude, intNode.longitude]}
+              icon={createTrafficSignalIcon(intNode.signal_state, isPreempted)}
+            >
+              <Popup>
+                <div style={{ minWidth: "180px", color: "#0f172a" }}>
+                  <strong style={{ fontSize: "13px", display: "block" }}>{intNode.name}</strong>
+                  <div style={{ fontSize: "11px", color: "#64748b", margin: "4px 0" }}>
+                    {intNode.roads ? intNode.roads.join(" · ") : "Signalized Intersection"}
+                  </div>
+                  <div style={{
+                    padding: "3px 6px",
+                    borderRadius: "4px",
+                    fontSize: "11px",
+                    fontWeight: "bold",
+                    background: isPreempted ? "#dcfce7" : "#f1f5f9",
+                    color: isPreempted ? "#15803d" : "#334155",
+                    display: "inline-block",
+                    marginTop: "4px"
+                  }}>
+                    {isPreempted ? "● GREEN PREEMPTION (HOLD)" : `● ${intNode.signal_state || "NORMAL CYCLE"} (${intNode.countdown_seconds || 30}s)`}
+                  </div>
+                  <div style={{ fontSize: "11px", marginTop: "4px", color: "#64748b" }}>
+                    Congestion: <strong>{intNode.congestion_index || 25}%</strong>
+                  </div>
+                </div>
+              </Popup>
+            </Marker>
+          );
+        })}
+
+        {/* 6. Traveled Route Segment (Green Corridor) */}
         {vehicleState && vehicleState.traveledPoints.length >= 2 && (
           <Polyline
             positions={vehicleState.traveledPoints}

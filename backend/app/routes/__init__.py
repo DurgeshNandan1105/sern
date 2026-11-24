@@ -7,6 +7,7 @@ from app.routes.notifications import router as notifications_router
 from app.routes.routing import router as routing_router
 from app.routes.ws import router as ws_router
 from app.routes.auth import router as auth_router
+from app.routes.traffic import router as traffic_router
 
 __all__ = [
     "health_router",
@@ -18,5 +19,6 @@ __all__ = [
     "routing_router",
     "ws_router",
     "auth_router",
+    "traffic_router",
 ]
 
