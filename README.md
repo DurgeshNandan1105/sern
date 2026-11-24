@@ -1,15 +1,14 @@
+<img width="1892" height="902" alt="image" src="https://github.com/user-attachments/assets/c2a55286-553b-4e23-a423-26a6591b78df" />
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/056434d6-571f-408e-a659-372509648f33" />
+
 # 🚑 SERN — Smart Emergency Response Network
 
 **AI-Powered Accident Detection and Intelligent Emergency Response**
 
 [![Live Demo](https://img.shields.io/badge/Live_Website-sern--alpha.vercel.app-2563eb?style=for-the-badge&logo=vercel)](https://sern-alpha.vercel.app/)
-[![GitHub Repo](https://img.shields.io/badge/GitHub-DurgeshNandan1105%2Fsern-181717?style=for-the-badge&logo=github)](https://github.com/DurgeshNandan1105/sern)
-[![Collaborator Repo](https://img.shields.io/badge/Collaborator-isitamazumder05%2FSERN-6e5494?style=for-the-badge&logo=github)](https://github.com/isitamazumder05/SERN)
 
 > 🌐 **Live Website Link:** [https://sern-alpha.vercel.app/](https://sern-alpha.vercel.app/)  
-> 🤝 **Team Collaboration Repositories:**  
-> - **Lead Deployment Repository:** [https://github.com/DurgeshNandan1105/sern](https://github.com/DurgeshNandan1105/sern)  
-> - **Collaborator Origin Repository:** [https://github.com/isitamazumder05/SERN](https://github.com/isitamazumder05/SERN)  
+
 
 SERN (Smart Emergency Response Network) is an AI-powered emergency response prototype designed to improve the coordination of post-accident emergency services. It combines machine learning-based accident detection, ambulance dispatch management, intelligent routing integration, and hospital coordination into a unified system.
 
@@ -221,7 +220,6 @@ SERN is developed collaboratively by a five-member team:
 
 **Project Name:** SERN — Smart Emergency Response Network  
 **Live Website:** [https://sern-alpha.vercel.app/](https://sern-alpha.vercel.app/)  
-**Primary Repository:** [DurgeshNandan1105 / sern](https://github.com/DurgeshNandan1105/sern)  
 **Collaborator Repository:** [isitamazumder05 / SERN](https://github.com/isitamazumder05/SERN)  
 
 **Tagline:** Detect. Dispatch. Save Lives.
