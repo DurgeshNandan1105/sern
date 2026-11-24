@@ -10,6 +10,7 @@ from app.services.traffic_service import TrafficService
 from app.services.routing_adapter import RoutingAdapterService
 from app.schemas.routing import RouteCreate, RouteResponse
 from app.services.websocket_manager import ws_manager
+from app.routes.auth import require_roles
 
 router = APIRouter(prefix="/traffic", tags=["Traffic & Smart Signal Prioritization"])
 
@@ -39,7 +40,10 @@ def get_active_corridors():
 
 
 @router.post("/preempt")
-def manage_signal_preemption(payload: PreemptionRequest):
+def manage_signal_preemption(
+    payload: PreemptionRequest,
+    _auth: Any = Depends(require_roles("Administrator", "Ambulance Staff", "Traffic Controller", "Hospital Staff"))
+):
     """
     Manually or automatically prioritize traffic signals for emergency response.
     Locks signal to GREEN_PREEMPTION, clearing green corridors for ambulances.
@@ -153,7 +157,9 @@ def recalculate_route(emergency_id: int, avoid_congestion: bool = True, db: Sess
 
 
 @router.post("/reset")
-def reset_traffic_signals():
+def reset_traffic_signals(
+    _auth: Any = Depends(require_roles("Administrator", "Traffic Controller", "Ambulance Staff"))
+):
     """Resets all traffic signals to standard cycle and clears all green corridors."""
     for node in TrafficService.get_all_intersections():
         node["signal_state"] = "NORMAL_CYCLE"

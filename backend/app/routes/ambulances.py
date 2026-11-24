@@ -15,12 +15,17 @@ from app.schemas.ambulance import (
 )
 from app.utils.datetime_utils import utc_now
 from app.services.websocket_manager import ws_manager
+from app.routes.auth import require_roles
 
 router = APIRouter(prefix="/ambulances", tags=["Ambulances"])
 
 
 @router.post("", response_model=AmbulanceResponse, status_code=status.HTTP_201_CREATED)
-def register_ambulance(payload: AmbulanceCreate, db: Session = Depends(get_db)):
+def register_ambulance(
+    payload: AmbulanceCreate,
+    db: Session = Depends(get_db),
+    _auth: Optional[dict] = Depends(require_roles("Administrator"))
+):
     """Register a new ambulance unit."""
     existing = db.query(Ambulance).filter(Ambulance.registration_number == payload.registration_number).first()
     if existing:
@@ -144,7 +149,8 @@ def update_ambulance_location(
 def update_ambulance_availability(
     ambulance_id: int,
     payload: AmbulanceAvailabilityUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _auth: Optional[dict] = Depends(require_roles("Administrator", "Ambulance Staff"))
 ):
     """Set ambulance availability to AVAILABLE or UNAVAILABLE."""
     ambulance = db.query(Ambulance).filter(Ambulance.id == ambulance_id).first()

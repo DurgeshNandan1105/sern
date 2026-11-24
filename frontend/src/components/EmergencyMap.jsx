@@ -22,7 +22,7 @@ import { playEmergencyAlert, playDispatchChime } from "../utils/sound";
 import { sernApi } from "../services/api";
 import RouteComparisonPanel from "./RouteComparisonPanel";
 
-// High-fidelity RNSIT Campus -> SPARSH Hospital RR Nagar Corridors (matching Image 1)
+// High-fidelity RNSIT Campus -> SPARSH Hospital RR Nagar Corridors
 const RNSIT_RR_NAGAR_ROUTES = {
   CONGESTION_AWARE: {
     points: [
@@ -44,14 +44,14 @@ const RNSIT_RR_NAGAR_ROUTES = {
   },
   SHORTEST: {
     points: [
-      [12.9015, 77.5192], // RNSIT Campus
-      [12.9080, 77.5198], // Intersection #1 (Channasandra link)
-      [12.9140, 77.5165], // Intersection #2 (80ft link)
-      [12.9200, 77.5172], // Straight through 80 Feet Road (CONGESTED!)
+      [12.9015, 77.5192],
+      [12.9080, 77.5198],
+      [12.9140, 77.5165],
+      [12.9200, 77.5172],
       [12.9250, 77.5176],
-      [12.9285, 77.5180], // Intersection #3 (Srinivasaiah Rd)
+      [12.9285, 77.5180],
       [12.9320, 77.5180],
-      [12.9355, 77.5175]  // SPARSH Hospital RR Nagar
+      [12.9355, 77.5175]
     ],
     distanceKm: 5.29,
     durationMin: 19.82,
@@ -60,14 +60,14 @@ const RNSIT_RR_NAGAR_ROUTES = {
   },
   FASTEST: {
     points: [
-      [12.9015, 77.5192], // RNSIT Campus
-      [12.9080, 77.5198], // Intersection #1 (Channasandra link)
-      [12.9140, 77.5165], // Intersection #2 (80ft link)
-      [12.9200, 77.5172], // Straight through 80 Feet Road (CONGESTED!)
+      [12.9015, 77.5192],
+      [12.9080, 77.5198],
+      [12.9140, 77.5165],
+      [12.9200, 77.5172],
       [12.9250, 77.5176],
-      [12.9285, 77.5180], // Intersection #3 (Srinivasaiah Rd)
+      [12.9285, 77.5180],
       [12.9320, 77.5180],
-      [12.9355, 77.5175]  // SPARSH Hospital RR Nagar
+      [12.9355, 77.5175]
     ],
     distanceKm: 5.29,
     durationMin: 19.82,
@@ -85,17 +85,31 @@ const CONGESTED_80FT_ROAD_POINTS = [
   [12.9285, 77.5180]
 ];
 
-// MapController for centering and smooth following
-function MapController({ center, zoom, followVehicle, vehiclePos }) {
+// MapController with automatic zoom-to-route and vehicle following
+function MapController({ center, zoom, followVehicle, vehiclePos, routePoints, isCorridorActive, routeKey }) {
   const map = useMap();
+  const lastZoomedKeyRef = useRef(null);
 
   useEffect(() => {
-    if (followVehicle && vehiclePos && vehiclePos[0] && vehiclePos[1]) {
-      map.panTo(vehiclePos, { animate: true, duration: 0.5 });
-    } else if (center && center[0] && center[1]) {
-      map.setView(center, zoom || 12, { animate: true });
+    if (isCorridorActive && routePoints && routePoints.length >= 2) {
+      if (lastZoomedKeyRef.current !== routeKey) {
+        lastZoomedKeyRef.current = routeKey;
+        try {
+          const bounds = L.latLngBounds(routePoints);
+          map.fitBounds(bounds, { padding: [60, 60], maxZoom: 15, animate: true });
+        } catch (e) {
+          console.warn("fitBounds notice:", e);
+        }
+      } else if (followVehicle && vehiclePos && vehiclePos[0] && vehiclePos[1]) {
+        map.panTo(vehiclePos, { animate: true, duration: 0.5 });
+      }
+    } else {
+      lastZoomedKeyRef.current = null;
+      if (center && center[0] && center[1]) {
+        map.setView(center, zoom || 13, { animate: true });
+      }
     }
-  }, [center, zoom, followVehicle, vehiclePos, map]);
+  }, [center, zoom, followVehicle, vehiclePos, routePoints, isCorridorActive, routeKey, map]);
 
   return null;
 }
@@ -132,6 +146,7 @@ function distanceInMeters(lat1, lon1, lat2, lon2) {
 export default function EmergencyMap({
   ambulances = [],
   accidents = [],
+  emergencies = [],
   hospitals = [],
   intersections = [],
   selectedRoute = null,
@@ -139,6 +154,8 @@ export default function EmergencyMap({
   onSelectAccident = null,
   onSelectAmbulance = null,
   onEmergencyArrived = null,
+  isCitizenRole = false,
+  onOpenCitizenReport = null,
 }) {
   // Route selection mode: "CONGESTION_AWARE" (default) | "SHORTEST" | "FASTEST"
   const [routeMode, setRouteMode] = useState("CONGESTION_AWARE");
@@ -147,7 +164,7 @@ export default function EmergencyMap({
   const [isNavigating, setIsNavigating] = useState(false);
   const [navProgress, setNavProgress] = useState(0); // 0.0 to 1.0
   const [speedMultiplier, setSpeedMultiplier] = useState(2); // 1x, 2x, 4x
-  const [followVehicle, setFollowVehicle] = useState(false);
+  const [followVehicle, setFollowVehicle] = useState(true);
   const [soundEnabled, setSoundEnabled] = useState(true);
 
   // Manual Signal Overrides: { 1: boolean|null, 2: boolean|null, 3: boolean|null }
@@ -172,7 +189,7 @@ export default function EmergencyMap({
   const hasPlayedSirenRef = useRef(false);
   const lastPreemptRef = useRef({ 1: false, 2: false, 3: false });
 
-  // 1. Identify Active Dispatched Ambulance
+  // 1. Identify Active Dispatched Ambulance or Active Emergency
   const activeDispatchedAmb = useMemo(() => {
     return (
       ambulances.find(
@@ -183,6 +200,14 @@ export default function EmergencyMap({
       ) || null
     );
   }, [ambulances]);
+
+  const activeEmergency = useMemo(() => {
+    return (
+      emergencies.find(
+        (e) => ["DISPATCHED", "ASSIGNED", "EN_ROUTE"].includes(e.status)
+      ) || null
+    );
+  }, [emergencies]);
 
   // 2. Identify Pending / Active Accident Incident
   const activeAccident = useMemo(() => {
@@ -213,55 +238,95 @@ export default function EmergencyMap({
   }, [activeAccident, ambulances]);
 
   // 4. Strict Condition: Is an Ambulance Actively Assigned & En Route?
-  // Only true when an ambulance has been assigned to an active emergency and route is loaded.
-  // When false: Pure Bengaluru fleet overview map (No HUD, No route polylines, No comparison table).
+  // Only true when an ambulance is actively dispatched and route is loaded (Disabled for Citizen Role)
   const isCorridorActive = useMemo(() => {
+    if (isCitizenRole) return false;
     const hasDispatchedAmb = Boolean(
-      activeDispatchedAmb &&
-      ["DISPATCHED", "ASSIGNED", "EN_ROUTE"].includes(activeDispatchedAmb.status)
+      activeDispatchedAmb || (activeEmergency && activeEmergency.assigned_ambulance_id)
     );
     const hasRoute = Boolean(selectedRoute && (selectedRoute.route_geometry || selectedRoute.id));
-    return hasDispatchedAmb && hasRoute;
-  }, [activeDispatchedAmb, selectedRoute]);
+    return Boolean(hasDispatchedAmb && (hasRoute || activeAccident));
+  }, [isCitizenRole, activeDispatchedAmb, activeEmergency, selectedRoute, activeAccident]);
 
-  // Dynamic Map Center & Zoom:
-  // When idle/standby: [12.9716, 77.5946] (Bengaluru center) at zoom 12 (showing all of Bengaluru)
-  // When corridor is active: [12.9180, 77.5160] (RR Nagar Corridor) at zoom 14
-  const mapCenter = useMemo(() => {
-    if (isCorridorActive) {
-      return [12.9180, 77.5160];
-    }
-    return activeCenter || [12.9716, 77.5946];
-  }, [isCorridorActive, activeCenter]);
-
-  const mapZoom = useMemo(() => {
-    return isCorridorActive ? 14 : 12;
-  }, [isCorridorActive]);
-
-  // Compute active route points based on selection
+  // Dynamic Route Points: Computed according to the actual registered place
   const routePoints = useMemo(() => {
     if (!isCorridorActive) return [];
+
+    // 1. If backend calculated route geometry is provided, use it directly!
+    if (selectedRoute && selectedRoute.route_geometry) {
+      try {
+        const geom =
+          typeof selectedRoute.route_geometry === "string"
+            ? JSON.parse(selectedRoute.route_geometry)
+            : selectedRoute.route_geometry;
+
+        if (geom.type === "LineString" && Array.isArray(geom.coordinates) && geom.coordinates.length >= 2) {
+          return geom.coordinates.map((coord) => [coord[1], coord[0]]);
+        }
+      } catch (e) {
+        console.warn("Failed to parse route geometry:", e);
+      }
+    }
+
+    // 2. If active incident and dispatched ambulance exist, construct dynamic route to nearest hospital
+    if (activeAccident && activeDispatchedAmb) {
+      const ambPt = [activeDispatchedAmb.latitude, activeDispatchedAmb.longitude];
+      const accPt = [activeAccident.latitude, activeAccident.longitude];
+
+      // Find nearest hospital to accident
+      let nearestHospPt = [12.9355, 77.5175];
+      let minHospDist = Infinity;
+      for (const h of hospitals) {
+        const d = distanceInMeters(accPt[0], accPt[1], h.latitude, h.longitude);
+        if (d < minHospDist) {
+          minHospDist = d;
+          nearestHospPt = [h.latitude, h.longitude];
+        }
+      }
+
+      // If accident is near RNSIT, use detailed RR Nagar corridor
+      const distToRnsit = distanceInMeters(accPt[0], accPt[1], 12.9015, 77.5192);
+      if (distToRnsit < 1500 && RNSIT_RR_NAGAR_ROUTES[routeMode]) {
+        return RNSIT_RR_NAGAR_ROUTES[routeMode].points;
+      }
+
+      // Dynamic road network path connecting registered accident location
+      const midLat1 = ambPt[0] + (accPt[0] - ambPt[0]) * 0.5 + 0.001;
+      const midLon1 = ambPt[1] + (accPt[1] - ambPt[1]) * 0.5;
+      const midLat2 = accPt[0] + (nearestHospPt[0] - accPt[0]) * 0.5;
+      const midLon2 = accPt[1] + (nearestHospPt[1] - accPt[1]) * 0.5 + 0.001;
+
+      return [ambPt, [midLat1, midLon1], accPt, [midLat2, midLon2], nearestHospPt];
+    }
 
     if (RNSIT_RR_NAGAR_ROUTES[routeMode]) {
       return RNSIT_RR_NAGAR_ROUTES[routeMode].points;
     }
-    if (!selectedRoute || !selectedRoute.route_geometry) {
-      return RNSIT_RR_NAGAR_ROUTES.CONGESTION_AWARE.points;
-    }
-    try {
-      const geom =
-        typeof selectedRoute.route_geometry === "string"
-          ? JSON.parse(selectedRoute.route_geometry)
-          : selectedRoute.route_geometry;
 
-      if (geom.type === "LineString" && Array.isArray(geom.coordinates)) {
-        return geom.coordinates.map((coord) => [coord[1], coord[0]]);
-      }
-    } catch (e) {
-      console.warn("Failed to parse route geometry:", e);
+    return [];
+  }, [isCorridorActive, selectedRoute, activeAccident, activeDispatchedAmb, hospitals, routeMode]);
+
+  // Dynamic Map Center & Zoom:
+  const mapCenter = useMemo(() => {
+    if (isCorridorActive && routePoints.length >= 2) {
+      return routePoints[0];
     }
-    return RNSIT_RR_NAGAR_ROUTES.CONGESTION_AWARE.points;
-  }, [isCorridorActive, selectedRoute, routeMode]);
+    if (activeAccident && activeAccident.latitude && activeAccident.longitude) {
+      return [activeAccident.latitude, activeAccident.longitude];
+    }
+    return activeCenter || [12.9716, 77.5946];
+  }, [isCorridorActive, routePoints, activeAccident, activeCenter]);
+
+  const mapZoom = useMemo(() => {
+    if (isCorridorActive) return 14;
+    if (activeAccident) return 13;
+    return 12;
+  }, [isCorridorActive, activeAccident]);
+
+  const routeKey = useMemo(() => {
+    if (!isCorridorActive || routePoints.length < 2) return null;
+    return `${routePoints[0][0]}-${routePoints[routePoints.length - 1][0]}-${routePoints.length}-${selectedRoute?.id || 'corridor'}`;
+  }, [isCorridorActive, routePoints, selectedRoute]);
 
   // Compute total route length in meters and segment distances
   const routeMetrics = useMemo(() => {
@@ -296,7 +361,7 @@ export default function EmergencyMap({
       return () => clearTimeout(t);
     }
 
-    const routeId = selectedRoute?.id || selectedRoute?.emergency_id || "RNSIT-CORRIDOR";
+    const routeId = selectedRoute?.id || selectedRoute?.emergency_id || "ROUTE-ACTIVE";
     if (routeId && routeId !== loadedRouteIdRef.current && routePoints.length >= 2) {
       loadedRouteIdRef.current = routeId;
       hasPlayedSirenRef.current = false;
@@ -310,8 +375,7 @@ export default function EmergencyMap({
     }
   }, [isCorridorActive, selectedRoute, routePoints.length]);
 
-  // Dynamic Red-to-Green Signal Clearance Computation:
-  // Thresholds: #1 clears at 18%, #2 clears at 48%, #3 clears at 78% along route
+  // Dynamic Red-to-Green Signal Clearance Computation
   const isSignal1Cleared = manualSignalOverrides[1] !== null ? manualSignalOverrides[1] : navProgress >= 0.18;
   const isSignal2Cleared = manualSignalOverrides[2] !== null ? manualSignalOverrides[2] : navProgress >= 0.48;
   const isSignal3Cleared = manualSignalOverrides[3] !== null ? manualSignalOverrides[3] : navProgress >= 0.78;
@@ -381,7 +445,7 @@ export default function EmergencyMap({
       speedKmh: 0,
       remainingKm: 0,
       etaSec: 0,
-      currentStep: "Arrived at Destination: SPARSH Hospital RR Nagar (Unit On Site)",
+      currentStep: "Arrived at Destination: Trauma Hospital (Unit On Site)",
     }));
 
     if (activeDispatchedAmb) {
@@ -401,8 +465,7 @@ export default function EmergencyMap({
     }
   }, [soundEnabled, activeDispatchedAmb, routePoints, onEmergencyArrived, selectedRoute]);
 
-  // Turn-by-Turn GPS Animation Loop:
-  // Full trip duration calibrated to ~24 seconds at 1x (or ~12s at 2x) for optimal demonstration
+  // Turn-by-Turn GPS Animation Loop
   useEffect(() => {
     if (!isNavigating || routeMetrics.totalDist === 0) {
       lastTickTimeRef.current = null;
@@ -430,7 +493,7 @@ export default function EmergencyMap({
         }
 
         const remainingRatio = 1.0 - next;
-        const totalDistanceKm = routeMode === "CONGESTION_AWARE" ? 6.87 : 5.29;
+        const totalDistanceKm = +(routeMetrics.totalDist / 1000).toFixed(2) || (routeMode === "CONGESTION_AWARE" ? 6.87 : 5.29);
         const remainingKm = Math.max(0, +(remainingRatio * totalDistanceKm).toFixed(2));
         const baseSpeed = routeMode === "CONGESTION_AWARE" ? 28 : 16;
         const currentSpeedKmh = Math.round(baseSpeed + Math.sin(next * 20) * 3);
@@ -440,13 +503,13 @@ export default function EmergencyMap({
         if (next < 0.18) {
           stepText = "Approaching Signal #1: Cross-traffic holding RED";
         } else if (next < 0.48) {
-          stepText = "Signal #1 CLEARED (RED ➔ GREEN). Detouring Kenchenahalli Main Rd";
+          stepText = "Signal #1 CLEARED (RED ➔ GREEN). Advancing along primary corridor";
         } else if (next < 0.78) {
-          stepText = "Signal #2 CLEARED (RED ➔ GREEN). Bypassing 80ft Road Traffic Jam";
+          stepText = "Signal #2 CLEARED (RED ➔ GREEN). Bypassing congested traffic segments";
         } else if (next < 0.98) {
-          stepText = "Signal #3 CLEARED (RED ➔ GREEN). Final approach to SPARSH RR Nagar Gate";
+          stepText = "Signal #3 CLEARED (RED ➔ GREEN). Final approach to emergency trauma bay";
         } else {
-          stepText = "Arrived at Destination: SPARSH Hospital RR Nagar";
+          stepText = "Arrived at Destination: Trauma Hospital";
         }
 
         setTelemetry({
@@ -505,18 +568,16 @@ export default function EmergencyMap({
     });
   };
 
-  // Preempt all signals (force all GREEN)
   const preemptAllSignals = () => {
     if (soundEnabled) playDispatchChime();
     setManualSignalOverrides({ 1: true, 2: true, 3: true });
   };
 
-  // Reset all signals (force all RED HOLD)
   const resetAllSignals = () => {
     setManualSignalOverrides({ 1: false, 2: false, 3: false });
   };
 
-  // Custom DivIcon for Corridor Signals (matching Image 1)
+  // Custom DivIcon for Corridor Signals
   const createCorridorSignalIcon = (num, isCleared) => {
     if (isCleared) {
       return L.divIcon({
@@ -536,7 +597,6 @@ export default function EmergencyMap({
             box-shadow: 0 0 16px rgba(6, 182, 212, 0.7);
             letter-spacing: 0.5px;
             cursor: pointer;
-            user-select: none;
           " title="Click to toggle Red / Green signal">
             <span style="
               display: inline-flex;
@@ -575,7 +635,6 @@ export default function EmergencyMap({
             box-shadow: 0 0 14px rgba(239, 68, 68, 0.7);
             letter-spacing: 0.5px;
             cursor: pointer;
-            user-select: none;
           " title="Click to toggle Red / Green signal">
             <span style="
               display: inline-block;
@@ -595,36 +654,8 @@ export default function EmergencyMap({
     }
   };
 
-  // Custom DivIcon for Start Point (S)
-  const createStartMarkerIcon = () => {
-    return L.divIcon({
-      className: "",
-      html: `
-        <div style="
-          width: 30px;
-          height: 30px;
-          border-radius: 50%;
-          background: #1e40af;
-          border: 2.5px solid #60a5fa;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: #ffffff;
-          font-weight: 900;
-          font-size: 13px;
-          box-shadow: 0 0 12px rgba(59, 130, 246, 0.8);
-        ">
-          S
-        </div>
-      `,
-      iconSize: [30, 30],
-      iconAnchor: [15, 15],
-      popupAnchor: [0, -15],
-    });
-  };
-
-  // Custom DivIcon for RNSIT Campus Incident (matching Image 1)
-  const createRnsitCampusIcon = () => {
+  // Custom DivIcon for Incident Marker
+  const createIncidentIcon = (locationLabel = "Incident Site") => {
     return L.divIcon({
       className: "",
       html: `
@@ -652,7 +683,7 @@ export default function EmergencyMap({
               font-weight: 800;
               padding: 2px 6px;
               border-radius: 4px;
-            ">RNS</span>
+            ">ALERT</span>
             <span style="
               background: #020617;
               border: 1px solid #334155;
@@ -662,25 +693,25 @@ export default function EmergencyMap({
               padding: 2px 8px;
               border-radius: 6px;
               white-space: nowrap;
-            ">RNSIT Campus</span>
+            ">${locationLabel}</span>
           </div>
         </div>
       `,
-      iconSize: [120, 60],
-      iconAnchor: [60, 20],
+      iconSize: [140, 60],
+      iconAnchor: [70, 20],
       popupAnchor: [0, -25],
     });
   };
 
-  // Custom DivIcon for SPARSH Hospital RR Nagar (matching Image 1)
-  const createSparshHospitalIcon = () => {
+  // Custom DivIcon for Hospital
+  const createHospitalIcon = (name) => {
     return L.divIcon({
       className: "",
       html: `
         <div style="display: flex; flex-direction: column; align-items: center;">
           <div style="
-            width: 38px;
-            height: 38px;
+            width: 36px;
+            height: 36px;
             background: #064e3b;
             border: 2px solid #10b981;
             border-radius: 10px;
@@ -689,7 +720,7 @@ export default function EmergencyMap({
             justify-content: center;
             box-shadow: 0 0 16px rgba(16, 185, 129, 0.6);
           ">
-            <span style="font-size: 20px;">🏥</span>
+            <span style="font-size: 19px;">🏥</span>
           </div>
           <div style="
             background: #020617;
@@ -702,56 +733,13 @@ export default function EmergencyMap({
             margin-top: 5px;
             white-space: nowrap;
           ">
-            SPARSH RR Nagar
-          </div>
-        </div>
-      `,
-      iconSize: [120, 60],
-      iconAnchor: [60, 20],
-      popupAnchor: [0, -25],
-    });
-  };
-
-  // Custom DivIcon for Adichunchanagiri / BGS GIMS Hospital ([H] blue badge in Image 1)
-  const createHospitalIconH = (name) => {
-    return L.divIcon({
-      className: "",
-      html: `
-        <div style="display: flex; flex-direction: column; align-items: center;">
-          <div style="
-            width: 30px;
-            height: 30px;
-            background: #1e3a8a;
-            border: 2px solid #3b82f6;
-            border-radius: 6px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-weight: 900;
-            font-size: 14px;
-            box-shadow: 0 0 12px rgba(59, 130, 246, 0.6);
-          ">
-            H
-          </div>
-          <div style="
-            background: #020617;
-            border: 1px solid #334155;
-            color: #cbd5e1;
-            font-size: 10px;
-            font-weight: 600;
-            padding: 1px 6px;
-            border-radius: 4px;
-            margin-top: 3px;
-            white-space: nowrap;
-          ">
             ${name}
           </div>
         </div>
       `,
-      iconSize: [120, 50],
-      iconAnchor: [60, 15],
-      popupAnchor: [0, -15],
+      iconSize: [130, 60],
+      iconAnchor: [65, 20],
+      popupAnchor: [0, -25],
     });
   };
 
@@ -897,7 +885,7 @@ export default function EmergencyMap({
         boxShadow: "0 8px 30px rgba(0,0,0,0.5)"
       }}>
         
-        {/* A. STANDBY FLEET STATUS BAR (Rendered on First Login when No Ambulance is Dispatched) */}
+        {/* A. STANDBY FLEET STATUS BAR (When No Ambulance is Dispatched) */}
         {!isCorridorActive && (
           <div
             onMouseDown={(e) => e.stopPropagation()}
@@ -930,43 +918,69 @@ export default function EmergencyMap({
               }} />
               <div>
                 <strong style={{ fontSize: "12px", color: "#f8fafc", display: "block" }}>
-                  Bengaluru Fleet Standby & Incident Monitoring
+                  {isCitizenRole ? "Public Safety & Incident Awareness Map" : "Bengaluru Fleet Standby & Incident Monitoring"}
                 </strong>
                 <span style={{ fontSize: "11px", color: "#94a3b8" }}>
-                  {nearestAmbulance && activeAccident
+                  {isCitizenRole
+                    ? "Live public safety status · Emergency trauma centers & reported road incidents"
+                    : nearestAmbulance && activeAccident
                     ? `⚠️ Collision candidate reported · Nearest unit: ${nearestAmbulance.registration_number} (${nearestAmbulance.distanceKm} km away)`
                     : `${ambulances.length || 6} Ambulances stationed across Bengaluru · Standby for operator dispatch`}
                 </span>
               </div>
             </div>
 
-            {activeAccident && (
-              <button
-                onClick={() => {
-                  if (onSelectAccident) onSelectAccident(activeAccident);
-                }}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "5px",
-                  padding: "6px 12px",
-                  background: "#2563eb",
-                  border: "none",
-                  borderRadius: "6px",
-                  color: "white",
-                  fontSize: "11px",
-                  fontWeight: "bold",
-                  cursor: "pointer"
-                }}
-              >
-                Validate & Dispatch
-              </button>
-            )}
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              {isCitizenRole ? (
+                <button
+                  onClick={() => {
+                    if (onOpenCitizenReport) onOpenCitizenReport();
+                  }}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "5px",
+                    padding: "6px 14px",
+                    background: "#dc2626",
+                    border: "none",
+                    borderRadius: "6px",
+                    color: "white",
+                    fontSize: "11px",
+                    fontWeight: "bold",
+                    cursor: "pointer"
+                  }}
+                >
+                  <ShieldAlert size={13} />
+                  Report Emergency
+                </button>
+              ) : activeAccident ? (
+                <button
+                  onClick={() => {
+                    if (onSelectAccident) onSelectAccident(activeAccident);
+                  }}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "5px",
+                    padding: "6px 12px",
+                    background: "#2563eb",
+                    border: "none",
+                    borderRadius: "6px",
+                    color: "white",
+                    fontSize: "11px",
+                    fontWeight: "bold",
+                    cursor: "pointer"
+                  }}
+                >
+                  Validate & Dispatch
+                </button>
+              ) : null}
+            </div>
           </div>
         )}
 
         {/* B. LIVE GPS TELEMETRY & SMART SIGNAL CONTROL HUD OVERLAY (Shown ONLY After Ambulance Assignment) */}
-        {isCorridorActive && (
+        {isCorridorActive && !isCitizenRole && (
           <div
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
@@ -1324,7 +1338,7 @@ export default function EmergencyMap({
           </div>
         )}
 
-        {/* C. LEAFLET MAP CONTAINER WITH OPENSTREETMAP TILES (Bengaluru City Overview) */}
+        {/* C. LEAFLET MAP CONTAINER (Bengaluru City Overview) */}
         <MapContainer
           center={mapCenter}
           zoom={mapZoom}
@@ -1336,187 +1350,97 @@ export default function EmergencyMap({
             zoom={mapZoom}
             followVehicle={followVehicle}
             vehiclePos={vehicleState?.pos}
+            routePoints={routePoints}
+            isCorridorActive={isCorridorActive}
+            routeKey={routeKey}
           />
 
-          {/* Standard OpenStreetMap Tiles (Styled Dark via CSS, zero third-party API key requirement) */}
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
 
           {/* === 1. CORRIDOR & INCIDENT OVERLAYS (Active ONLY When an Ambulance is Dispatched) === */}
-          {isCorridorActive && (
+          {isCorridorActive && !isCitizenRole && (
             <>
-              {/* Origin Incident Marker: RNSIT Campus (matching Image 1) */}
-              <Marker
-                position={[12.9015, 77.5192]}
-                icon={createRnsitCampusIcon()}
-                eventHandlers={{
-                  click: () => {
-                    if (onSelectAccident && accidents.length > 0) {
-                      onSelectAccident(accidents[0]);
-                    }
-                  }
-                }}
-              >
-                <Popup>
-                  <div style={{ color: "#0f172a", minWidth: "180px" }}>
-                    <strong style={{ color: "#dc2626", fontSize: "14px" }}>RNSIT Campus Incident</strong>
-                    <p style={{ margin: "4px 0", fontSize: "12px" }}>Location: Dr. Vishnuvardhan Rd, RR Nagar</p>
-                    <div style={{ fontSize: "11px", color: "#16a34a", fontWeight: "bold" }}>● Severe Collision Confirmed</div>
-                  </div>
-                </Popup>
-              </Marker>
+              {/* Origin Incident Marker */}
+              {activeAccident && (
+                <Marker
+                  position={[activeAccident.latitude, activeAccident.longitude]}
+                  icon={createIncidentIcon(activeAccident.location_description || "Incident Site")}
+                >
+                  <Popup>
+                    <div style={{ color: "#0f172a", minWidth: "180px" }}>
+                      <strong style={{ color: "#dc2626", fontSize: "14px" }}>Reported Incident #{activeAccident.id}</strong>
+                      <p style={{ margin: "4px 0", fontSize: "12px" }}>Location: {activeAccident.location_description || "Bengaluru Corridor"}</p>
+                      <div style={{ fontSize: "11px", color: "#16a34a", fontWeight: "bold" }}>● Nearest Unit Dispatched</div>
+                    </div>
+                  </Popup>
+                </Marker>
+              )}
 
-              {/* Starting Ambulance Depot Marker (S) near RNSIT (matching Image 1) */}
+              {/* Corridor Intersections with Live Red -> Green Simulation */}
               <Marker
-                position={[12.9050, 77.5215]}
-                icon={createStartMarkerIcon()}
-              >
-                <Popup>
-                  <div style={{ color: "#0f172a", minWidth: "160px" }}>
-                    <strong>Ambulance Base (S)</strong>
-                    <p style={{ margin: "4px 0", fontSize: "12px" }}>KA-05-EM-7720 (RR Nagar Unit)</p>
-                    <span style={{ color: "#2563eb", fontWeight: "bold", fontSize: "11px" }}>Assigned to Corridor</span>
-                  </div>
-                </Popup>
-              </Marker>
-
-              {/* Destination Hospital Marker: SPARSH Hospital RR Nagar (matching Image 1) */}
-              <Marker
-                position={[12.9355, 77.5175]}
-                icon={createSparshHospitalIcon()}
-              >
-                <Popup>
-                  <div style={{ color: "#0f172a", minWidth: "180px" }}>
-                    <strong style={{ color: "#15803d", fontSize: "14px" }}>SPARSH Hospital RR Nagar</strong>
-                    <p style={{ margin: "4px 0", fontSize: "12px" }}>Rajarajeshwari Nagar Trauma Centre</p>
-                    <span style={{ fontSize: "11px", color: "#2563eb", fontWeight: "bold" }}>Direct Trauma Link Ready</span>
-                  </div>
-                </Popup>
-              </Marker>
-
-              {/* Three Corridor Intersections with Live Red -> Green Simulation (matching Image 1) */}
-              {/* Signal #1 */}
-              <Marker
-                position={[12.9080, 77.5198]}
+                position={routePoints[1] || [12.9080, 77.5198]}
                 icon={createCorridorSignalIcon(1, isSignal1Cleared)}
-                eventHandlers={{
-                  click: () => toggleSignal(1)
-                }}
+                eventHandlers={{ click: () => toggleSignal(1) }}
               >
                 <Popup>
                   <div style={{ color: "#0f172a", minWidth: "170px" }}>
-                    <strong>Intersection #1: Channasandra Link</strong>
+                    <strong>Intersection #1: Arterial Junction</strong>
                     <p style={{ margin: "4px 0", fontSize: "12px" }}>
                       Status: <strong style={{ color: isSignal1Cleared ? "#16a34a" : "#dc2626" }}>
                         {isSignal1Cleared ? "GREEN (PREEMPTION CLEARED)" : "RED (HOLDING CROSS-TRAFFIC)"}
                       </strong>
                     </p>
-                    <button
-                      onClick={() => toggleSignal(1)}
-                      style={{
-                        padding: "4px 8px",
-                        background: "#0284c7",
-                        color: "white",
-                        border: "none",
-                        borderRadius: "4px",
-                        cursor: "pointer",
-                        fontSize: "11px",
-                        marginTop: "4px"
-                      }}
-                    >
-                      Toggle Red / Green
-                    </button>
                   </div>
                 </Popup>
               </Marker>
 
-              {/* Signal #2 */}
               <Marker
-                position={[12.9140, 77.5165]}
+                position={routePoints[2] || [12.9140, 77.5165]}
                 icon={createCorridorSignalIcon(2, isSignal2Cleared)}
-                eventHandlers={{
-                  click: () => toggleSignal(2)
-                }}
+                eventHandlers={{ click: () => toggleSignal(2) }}
               >
                 <Popup>
                   <div style={{ color: "#0f172a", minWidth: "170px" }}>
-                    <strong>Intersection #2: 80ft Rd / Kenchenahalli Link</strong>
+                    <strong>Intersection #2: Corridor Link</strong>
                     <p style={{ margin: "4px 0", fontSize: "12px" }}>
                       Status: <strong style={{ color: isSignal2Cleared ? "#16a34a" : "#dc2626" }}>
                         {isSignal2Cleared ? "GREEN (PREEMPTION CLEARED)" : "RED (HOLDING CROSS-TRAFFIC)"}
                       </strong>
                     </p>
-                    <button
-                      onClick={() => toggleSignal(2)}
-                      style={{
-                        padding: "4px 8px",
-                        background: "#0284c7",
-                        color: "white",
-                        border: "none",
-                        borderRadius: "4px",
-                        cursor: "pointer",
-                        fontSize: "11px",
-                        marginTop: "4px"
-                      }}
-                    >
-                      Toggle Red / Green
-                    </button>
                   </div>
                 </Popup>
               </Marker>
 
-              {/* Signal #3 */}
               <Marker
-                position={[12.9285, 77.5180]}
+                position={routePoints[routePoints.length - 2] || [12.9285, 77.5180]}
                 icon={createCorridorSignalIcon(3, isSignal3Cleared)}
-                eventHandlers={{
-                  click: () => toggleSignal(3)
-                }}
+                eventHandlers={{ click: () => toggleSignal(3) }}
               >
                 <Popup>
                   <div style={{ color: "#0f172a", minWidth: "170px" }}>
-                    <strong>Intersection #3: Srinivasaiah Road Link</strong>
+                    <strong>Intersection #3: Hospital Approach</strong>
                     <p style={{ margin: "4px 0", fontSize: "12px" }}>
                       Status: <strong style={{ color: isSignal3Cleared ? "#16a34a" : "#dc2626" }}>
                         {isSignal3Cleared ? "GREEN (PREEMPTION CLEARED)" : "RED (HOLDING CROSS-TRAFFIC)"}
                       </strong>
                     </p>
-                    <button
-                      onClick={() => toggleSignal(3)}
-                      style={{
-                        padding: "4px 8px",
-                        background: "#0284c7",
-                        color: "white",
-                        border: "none",
-                        borderRadius: "4px",
-                        cursor: "pointer",
-                        fontSize: "11px",
-                        marginTop: "4px"
-                      }}
-                    >
-                      Toggle Red / Green
-                    </button>
                   </div>
                 </Popup>
               </Marker>
 
-              {/* Congested Section along 80 Feet Road (Dashed Red & Blue Line matching Image 1) */}
-              <Polyline
-                positions={CONGESTED_80FT_ROAD_POINTS}
-                color="#ef4444"
-                weight={8}
-                opacity={0.85}
-                dashArray="14, 10"
-              />
-              <Polyline
-                positions={CONGESTED_80FT_ROAD_POINTS}
-                color="#38bdf8"
-                weight={3}
-                opacity={0.8}
-                dashArray="6, 18"
-              />
+              {/* Congested Road Indicator if traversing congested zones */}
+              {routeMode !== "CONGESTION_AWARE" && (
+                <Polyline
+                  positions={CONGESTED_80FT_ROAD_POINTS}
+                  color="#ef4444"
+                  weight={8}
+                  opacity={0.85}
+                  dashArray="14, 10"
+                />
+              )}
 
               {/* Traveled Route Segment (Solid Green Corridor) */}
               {vehicleState && vehicleState.traveledPoints.length >= 2 && (
@@ -1528,7 +1452,7 @@ export default function EmergencyMap({
                 />
               )}
 
-              {/* Remaining Route Ahead (Cyan/Amber based on mode) */}
+              {/* Remaining Route Ahead */}
               {vehicleState && vehicleState.remainingPoints.length >= 2 ? (
                 <Polyline
                   positions={vehicleState.remainingPoints}
@@ -1567,9 +1491,8 @@ export default function EmergencyMap({
             </>
           )}
 
-          {/* === 2. FLEET STANDBY AMBULANCES (Always Shown on Map, highlighting Nearest) === */}
-          {ambulances.map((amb) => {
-            // When corridor is active, skip the assigned unit since it is rendered by vehicleState
+          {/* === 2. FLEET STANDBY AMBULANCES (Hidden for Citizen Role to protect operational telemetry) === */}
+          {!isCitizenRole && ambulances.map((amb) => {
             if (isCorridorActive && activeDispatchedAmb && amb.id === activeDispatchedAmb.id) {
               return null;
             }
@@ -1610,8 +1533,8 @@ export default function EmergencyMap({
             );
           })}
 
-          {/* === 3. PENDING ACCIDENTS (When Not Yet Dispatched) === */}
-          {!isCorridorActive && accidents.map((acc) => {
+          {/* === 3. ACCIDENT ALERTS (Always shown, tailored for citizen vs operator) === */}
+          {accidents.map((acc) => {
             return (
               <Marker
                 key={`acc-${acc.id}`}
@@ -1645,12 +1568,12 @@ export default function EmergencyMap({
                         margin-top: 3px;
                         white-space: nowrap;
                       ">
-                        Incident #${acc.id} (${acc.vehicle_type || 'Vehicle'})
+                        ${isCitizenRole ? 'Public Safety Incident' : `Incident #${acc.id}`}
                       </div>
                     </div>
                   `,
-                  iconSize: [120, 52],
-                  iconAnchor: [60, 17],
+                  iconSize: [140, 52],
+                  iconAnchor: [70, 17],
                   popupAnchor: [0, -17],
                 })}
               >
@@ -1658,120 +1581,66 @@ export default function EmergencyMap({
                   <div style={{ minWidth: "180px", color: "#0f172a" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                       <ShieldAlert size={14} color="#dc2626" />
-                      <strong style={{ color: "#dc2626" }}>Accident Detected</strong>
+                      <strong style={{ color: "#dc2626" }}>Accident Collision Reported</strong>
                     </div>
                     <p style={{ margin: "4px 0", fontSize: "12px" }}>
-                      Vehicle: <strong>{acc.vehicle_type?.toUpperCase()}</strong> · Confidence: <strong>{Math.round((acc.confidence_score || 0.9) * 100)}%</strong>
+                      Status: <strong>{acc.validation_status}</strong> · Vehicle: <strong>{acc.vehicle_type?.toUpperCase() || 'VEHICLE'}</strong>
                     </p>
-                    {nearestAmbulance && (
+                    {!isCitizenRole && nearestAmbulance && (
                       <div style={{ fontSize: "11px", color: "#0284c7", margin: "4px 0" }}>
                         Nearest Unit: <strong>{nearestAmbulance.registration_number}</strong> ({nearestAmbulance.distanceKm} km)
                       </div>
                     )}
-                    <button
-                      onClick={() => {
-                        if (onSelectAccident) onSelectAccident(acc);
-                      }}
-                      style={{
-                        width: "100%",
-                        padding: "6px",
-                        background: "#2563eb",
-                        color: "white",
-                        border: "none",
-                        borderRadius: "5px",
-                        fontWeight: "bold",
-                        fontSize: "11px",
-                        cursor: "pointer",
-                        marginTop: "4px"
-                      }}
-                    >
-                      🚑 Validate & Dispatch Nearest
-                    </button>
+                    {!isCitizenRole && (
+                      <button
+                        onClick={() => {
+                          if (onSelectAccident) onSelectAccident(acc);
+                        }}
+                        style={{
+                          width: "100%",
+                          padding: "6px",
+                          background: "#2563eb",
+                          color: "white",
+                          border: "none",
+                          borderRadius: "5px",
+                          fontWeight: "bold",
+                          fontSize: "11px",
+                          cursor: "pointer",
+                          marginTop: "4px"
+                        }}
+                      >
+                        🚑 Validate & Dispatch Nearest
+                      </button>
+                    )}
                   </div>
                 </Popup>
               </Marker>
             );
           })}
 
-          {/* === 4. PARTNER HOSPITALS (Shown in both Standby and Active modes) === */}
-          {/* Adichunchanagiri / BGS GIMS Hospital ([H] blue badge in Image 1) */}
-          <Marker
-            position={[12.9030, 77.4980]}
-            icon={createHospitalIconH("BGS GIMS / Trust")}
-          >
-            <Popup>
-              <div style={{ color: "#0f172a", minWidth: "170px" }}>
-                <strong>BGS GIMS & Hospital</strong>
-                <p style={{ margin: "4px 0", fontSize: "12px" }}>Adichunchanagiri Trust, RR Nagar</p>
-                <span style={{ fontSize: "11px", color: "#16a34a", fontWeight: "bold" }}>Emergency Services Available</span>
-              </div>
-            </Popup>
-          </Marker>
-
-          {/* Additional Partner Hospitals across Bengaluru from database */}
+          {/* === 4. PARTNER HOSPITALS (Shown to all roles) === */}
           {hospitals.map((hosp) => {
-            if (Math.abs(hosp.latitude - 12.9355) < 0.002) return null; // Skip SPARSH RR Nagar duplicate
             return (
               <Marker
                 key={`hosp-${hosp.id}`}
                 position={[hosp.latitude, hosp.longitude]}
-                icon={L.divIcon({
-                  className: "",
-                  html: `
-                    <div style="display: flex; flex-direction: column; align-items: center;">
-                      <div style="
-                        width: 26px;
-                        height: 26px;
-                        background: #064e3b;
-                        border: 2px solid #10b981;
-                        border-radius: 6px;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        color: white;
-                        font-size: 13px;
-                        box-shadow: 0 0 10px rgba(16, 185, 129, 0.6);
-                      ">
-                        🏥
-                      </div>
-                      <div style="
-                        background: #020617;
-                        border: 1px solid #10b981;
-                        color: #34d399;
-                        font-size: 9px;
-                        font-weight: 700;
-                        padding: 1px 5px;
-                        border-radius: 4px;
-                        margin-top: 2px;
-                        white-space: nowrap;
-                      ">
-                        ${hosp.name.split(" ")[0]}
-                      </div>
-                    </div>
-                  `,
-                  iconSize: [90, 44],
-                  iconAnchor: [45, 13],
-                  popupAnchor: [0, -15],
-                })}
+                icon={createHospitalIcon(hosp.name.split(" ")[0])}
               >
                 <Popup>
-                  <div style={{ minWidth: "150px", color: "#0f172a" }}>
-                    <strong>{hosp.name}</strong>
-                    <div style={{ fontSize: "11px", color: "#64748b" }}>ICU Beds: {hosp.icu_beds_available}</div>
+                  <div style={{ minWidth: "170px", color: "#0f172a" }}>
+                    <strong style={{ color: "#15803d" }}>{hosp.name}</strong>
+                    <p style={{ margin: "4px 0", fontSize: "12px" }}>{hosp.address}</p>
+                    <div style={{ fontSize: "11px", color: "#2563eb", fontWeight: "bold" }}>
+                      Emergency Line: {hosp.contact_information || "108"}
+                    </div>
                   </div>
                 </Popup>
               </Marker>
             );
           })}
 
-          {/* === 5. SECONDARY TRAFFIC INTERSECTIONS (City Junctions) === */}
-          {intersections.map((intNode) => {
-            const isCorridorNode =
-              Math.abs(intNode.latitude - 12.9080) < 0.001 ||
-              Math.abs(intNode.latitude - 12.9140) < 0.001 ||
-              Math.abs(intNode.latitude - 12.9285) < 0.001;
-            if (isCorridorNode && isCorridorActive) return null;
-
+          {/* === 5. SECONDARY TRAFFIC INTERSECTIONS (Hidden for Citizen Role) === */}
+          {!isCitizenRole && intersections.map((intNode) => {
             return (
               <Marker
                 key={`int-${intNode.id}`}
@@ -1797,7 +1666,7 @@ export default function EmergencyMap({
 
       {/* 2. THREE ROUTE MODE CARDS (Image 2) & ALTERNATIVE ROUTE COMPARISON TABLE (Image 3) */}
       {/* Shown ONLY After Ambulance Assignment / Active Route */}
-      {isCorridorActive && (
+      {isCorridorActive && !isCitizenRole && (
         <RouteComparisonPanel
           activeRouteType={routeMode}
           onRouteChange={(newMode) => {
@@ -1807,7 +1676,7 @@ export default function EmergencyMap({
             lastPreemptRef.current = { 1: false, 2: false, 3: false };
             setManualSignalOverrides({ 1: null, 2: null, 3: null });
           }}
-          targetHospitalName="SPARSH RR Nagar"
+          targetHospitalName={hospitals[0]?.name || "SPARSH RR Nagar"}
         />
       )}
     </div>

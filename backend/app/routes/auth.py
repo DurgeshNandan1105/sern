@@ -75,6 +75,30 @@ def get_current_user(authorization: Optional[str] = Header(None)) -> Optional[di
     return None
 
 
+def require_roles(*allowed_roles: str):
+    """
+    Role-based access control dependency.
+    If Authorization header with valid JWT is provided, checks if user's role is in allowed_roles.
+    Throws HTTP 403 Forbidden if user role is unauthorized (e.g. Public Citizen attempting dispatch/preemption).
+    """
+    def checker(authorization: Optional[str] = Header(None)):
+        if not authorization:
+            return None
+        parts = authorization.strip().split()
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            user = decode_access_token(parts[1])
+            if user:
+                role = user.get("role")
+                if role and role not in allowed_roles:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail=f"Access denied: Role '{role}' is not authorized to perform this operational action."
+                    )
+                return user
+        return None
+    return checker
+
+
 class RegisterRequest(BaseModel):
     name: str
     email: str

@@ -1,3 +1,4 @@
+import logging
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
@@ -16,6 +17,9 @@ from app.services.accident_service import (
 )
 from app.services.ml_service import ml_service, MLServiceError
 from app.services.websocket_manager import ws_manager
+from app.routes.auth import require_roles
+
+logger = logging.getLogger("sern.accidents")
 
 router = APIRouter(prefix="/accidents", tags=["Accidents"])
 
@@ -99,7 +103,8 @@ def get_accident(accident_id: int, db: Session = Depends(get_db)):
 def validate_accident(
     accident_id: int,
     payload: AccidentValidationRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _auth: Optional[dict] = Depends(require_roles("Administrator", "Hospital Staff", "Ambulance Staff"))
 ):
     """
     Explicit validation/confirmation endpoint for an accident candidate.
@@ -119,6 +124,40 @@ def validate_accident(
             "accident": acc_resp.model_dump(),
             "emergency": em_resp.model_dump() if em_resp else None
         })
+
+        # Broadcast AMBULANCE_DISPATCHED if auto-dispatched
+        if emergency and emergency.assigned_ambulance_id:
+            try:
+                from app.models.ambulance import Ambulance
+                from app.models.assignment import Assignment
+                from app.schemas.emergency import EmergencyDispatchResponse
+                from app.schemas.ambulance import AmbulanceResponse
+                from app.schemas.assignment import AssignmentResponse
+                from app.services.routing_adapter import RoutingAdapterService
+
+                amb = db.query(Ambulance).filter(Ambulance.id == emergency.assigned_ambulance_id).first()
+                assignment = (
+                    db.query(Assignment)
+                    .filter(Assignment.emergency_id == emergency.id, Assignment.status == "ACTIVE")
+                    .first()
+                )
+                if amb and assignment:
+                    dispatch_resp = EmergencyDispatchResponse(
+                        emergency=em_resp,
+                        assigned_ambulance=AmbulanceResponse.model_validate(amb),
+                        distance_km=4.8,
+                        assignment=AssignmentResponse.model_validate(assignment),
+                        message=f"Ambulance {amb.registration_number} dispatched successfully."
+                    )
+                    ws_manager.broadcast_sync("AMBULANCE_DISPATCHED", dispatch_resp.model_dump())
+                # Auto-generate route info for the newly dispatched emergency
+                try:
+                    RoutingAdapterService.generate_dev_mock_route(db, emergency.id)
+                except Exception as r_err:
+                    logger.debug("Dev route notice: %s", r_err)
+            except Exception as e:
+                logger.warning("Error auto-broadcasting dispatch: %s", e)
+
         return {
             "accident": acc_resp,
             "emergency": em_resp,

@@ -14,6 +14,7 @@ from app.schemas.ambulance import AmbulanceResponse
 from app.services.dispatch_service import DispatchService, NoAmbulanceAvailableError
 from app.services.emergency_service import EmergencyService
 from app.services.websocket_manager import ws_manager
+from app.routes.auth import require_roles
 
 router = APIRouter(prefix="/emergencies", tags=["Emergencies"])
 
@@ -67,7 +68,11 @@ def update_emergency_status(
 
 
 @router.post("/{emergency_id}/dispatch", response_model=EmergencyDispatchResponse)
-def dispatch_ambulance(emergency_id: int, db: Session = Depends(get_db)):
+def dispatch_ambulance(
+    emergency_id: int,
+    db: Session = Depends(get_db),
+    _auth: Optional[dict] = Depends(require_roles("Administrator", "Hospital Staff", "Ambulance Staff"))
+):
     """
     Dispatches the nearest available ambulance to the emergency using Haversine calculation.
     Prevents assigning an already assigned ambulance.

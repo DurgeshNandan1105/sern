@@ -195,3 +195,20 @@ def test_user_register_and_login_flow():
     assert login_data["success"] is True
     assert "token" in login_data
     assert login_data["user"]["email"] == test_email
+
+
+def test_role_based_authorization_citizen_forbidden():
+    from app.routes.auth import create_access_token
+    # Generate token for a Citizen Observer
+    citizen_token = create_access_token({"sub": 999, "email": "citizen@test.com", "role": "Public Citizen"})
+    headers = {"Authorization": f"Bearer {citizen_token}"}
+
+    # Citizen trying to trigger traffic preemption must receive 403 Forbidden
+    preempt_resp = client.post("/api/traffic/preempt", json={"intersection_id": "INT-01", "action": "TOGGLE"}, headers=headers)
+    assert preempt_resp.status_code == 403
+    assert "Access denied" in preempt_resp.json()["detail"]
+
+    # Citizen trying to dispatch an ambulance must receive 403 Forbidden
+    dispatch_resp = client.post("/api/emergencies/1/dispatch", headers=headers)
+    assert dispatch_resp.status_code == 403
+    assert "Access denied" in dispatch_resp.json()["detail"]
