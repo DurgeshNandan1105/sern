@@ -209,12 +209,12 @@ SERN is developed collaboratively by a five-member team:
 
 ## 🔮 Future Scope
 
-- Real-time vehicle sensor hardware integration (OBD-II, CAN bus telemetry)
-- Advanced multi-class crash severity estimation
-- OpenStreetMap dynamic road-network routing with live congestion avoidance
-- Municipal green corridor traffic light preemption hardware integration
-- Multi-city distributed emergency clustering
-- High-volume stress testing and multi-region failover
+- Real-time vehicle sensor hardware integration (OBD-II, CAN bus telemetry).
+- Advanced multi-class crash severity estimation.
+- OpenStreetMap dynamic road-network routing with live congestion avoidance.
+- Municipal green corridor traffic light preemption hardware integration.
+- Multi-city distributed emergency clustering.
+- High-volume stress testing and multi-region failover.
 
 ## 📌 Project Information
 
